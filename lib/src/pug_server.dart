@@ -10,7 +10,7 @@ import 'dart:async';
 import 'dart:math';
 
 /// Server-side Pug wrapper that communicates with a persistent Node.js server.
-class PugServer {
+class Pug {
   static Process? _nodeProcess;
   static String? _socketPath;
   static bool _isStarting = false;
@@ -116,132 +116,11 @@ class PugServer {
     _socketPath =
         Platform.isWindows ? '\\\\.\\pipe\\$socketName' : '/tmp/$socketName';
 
-    // Create the server script with the socket path embedded
-    final serverScript = '''
-const pug = require('pug');
-const net = require('net');
-const fs = require('fs');
-
-const socketPath = '$_socketPath';
-
-// Clean up socket file if it exists
-if (fs.existsSync(socketPath)) {
-  fs.unlinkSync(socketPath);
-}
-
-const server = net.createServer((socket) => {
-  let buffer = '';
-  
-  socket.on('data', (data) => {
-    buffer += data.toString();
-    
-    // Check if we have a complete message (ends with newline)
-    const lines = buffer.split('\\n');
-    if (lines.length > 1) {
-      // Process all complete lines except the last (incomplete) one
-      for (let i = 0; i < lines.length - 1; i++) {
-        const line = lines[i].trim();
-        if (line) {
-          processRequest(socket, line);
-        }
-      }
-      // Keep the incomplete line in buffer
-      buffer = lines[lines.length - 1];
-    }
-  });
-  
-  socket.on('error', (err) => {
-    console.error('Socket error:', err);
-  });
-});
-
-function processRequest(socket, requestStr) {
-  let request;
-  try {
-    request = JSON.parse(requestStr);
-  } catch (parseError) {
-    // JSON parsing failed - send error without request ID
-    const response = JSON.stringify({ 
-      success: false, 
-      error: 'Invalid JSON: ' + parseError.message 
-    }) + '\\n';
-    socket.write(response);
-    return;
-  }
-
-  try {
-    let result;
-    
-    switch (request.action) {
-      case 'render':
-        result = pug.render(request.template, request.data || {}, request.options || {});
-        break;
-      case 'renderFile':
-        result = pug.renderFile(request.filename, request.data || {}, request.options || {});
-        break;
-      case 'compile':
-        const compiled = pug.compile(request.template, request.options || {});
-        result = compiled(request.data || {});
-        break;
-      case 'compileFile':
-        const compiledFile = pug.compileFile(request.filename, request.options || {});
-        result = compiledFile(request.data || {});
-        break;
-      case 'ping':
-        result = 'pong';
-        break;
-      default:
-        throw new Error('Unknown action: ' + request.action);
-    }
-    
-    const response = JSON.stringify({ 
-      id: request.id, 
-      success: true, 
-      result: result 
-    }) + '\\n';
-    socket.write(response);
-  } catch (error) {
-    const response = JSON.stringify({ 
-      id: request.id, 
-      success: false, 
-      error: error.message,
-      errorType: error.code || 'unknown'
-    }) + '\\n';
-    socket.write(response);
-  }
-}
-
-server.listen(socketPath, () => {
-  console.log('ready');
-});
-
-server.on('error', (err) => {
-  console.error('Server error:', err);
-  process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  server.close(() => {
-    if (fs.existsSync(socketPath)) {
-      fs.unlinkSync(socketPath);
-    }
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  server.close(() => {
-    if (fs.existsSync(socketPath)) {
-      fs.unlinkSync(socketPath);
-    }
-    process.exit(0);
-  });
-});
-''';
+    // Get path to the server script
+    final scriptPath = _getScriptPath('pug_server.js');
 
     // Start the Node.js server
-    _nodeProcess = await Process.start('node', ['-e', serverScript]);
+    _nodeProcess = await Process.start('node', [scriptPath, _socketPath!]);
 
     // Wait for the server to output "ready"
     final readyCompleter = Completer<void>();
@@ -370,56 +249,8 @@ process.on('SIGINT', () => {
   /// Fallback method for Windows - uses the old process-per-request approach
   static Future<Map<String, dynamic>> _sendRequestViaProcess(
       Map<String, dynamic> request) async {
-    const nodeScript = '''
-const pug = require('pug');
-const fs = require('fs');
-
-// Read input from stdin
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => {
-  input += chunk;
-});
-
-process.stdin.on('end', () => {
-  try {
-    const request = JSON.parse(input);
-    let result;
-    
-    switch (request.action) {
-      case 'render':
-        result = pug.render(request.template, request.data || {}, request.options || {});
-        break;
-      case 'renderFile':
-        result = pug.renderFile(request.filename, request.data || {}, request.options || {});
-        break;
-      case 'compile':
-        const compiled = pug.compile(request.template, request.options || {});
-        result = compiled(request.data || {});
-        break;
-      case 'compileFile':
-        const compiledFile = pug.compileFile(request.filename, request.options || {});
-        result = compiledFile(request.data || {});
-        break;
-      case 'ping':
-        result = 'pong';
-        break;
-      default:
-        throw new Error('Unknown action: ' + request.action);
-    }
-    
-    console.log(JSON.stringify({ success: true, result: result }));
-  } catch (error) {
-    console.log(JSON.stringify({ 
-      success: false, 
-      error: error.message,
-      errorType: error.code || 'unknown'
-    }));
-  }
-});
-''';
-
-    final process = await Process.start('node', ['-e', nodeScript]);
+    final scriptPath = _getScriptPath('pug_fallback.js');
+    final process = await Process.start('node', [scriptPath]);
 
     // Send the request as JSON to stdin
     process.stdin.writeln(jsonEncode(request));
@@ -691,6 +522,42 @@ process.stdin.on('end', () => {
   /// ```
   static Future<void> shutdown() async {
     await _stopServer();
+  }
+
+  /// Gets the absolute path to a script file in the scripts directory
+  static String _getScriptPath(String scriptName) {
+    // Try to find the script relative to the package
+    final packageDir = _findPackageDirectory();
+    if (packageDir != null) {
+      final scriptPath = '$packageDir/lib/scripts/$scriptName';
+      if (File(scriptPath).existsSync()) {
+        return scriptPath;
+      }
+    }
+
+    // Fallback: check in current directory
+    final localPath = 'lib/scripts/$scriptName';
+    if (File(localPath).existsSync()) {
+      return File(localPath).absolute.path;
+    }
+
+    throw PugServerException('Could not find script file: $scriptName');
+  }
+
+  /// Finds the package directory by looking for pubspec.yaml
+  static String? _findPackageDirectory() {
+    var current = Directory.current;
+
+    // Walk up the directory tree looking for pubspec.yaml
+    while (current.path != current.parent.path) {
+      final pubspecFile = File('${current.path}/pubspec.yaml');
+      if (pubspecFile.existsSync()) {
+        return current.path;
+      }
+      current = current.parent;
+    }
+
+    return null;
   }
 }
 

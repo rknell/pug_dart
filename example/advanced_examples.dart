@@ -7,7 +7,7 @@ void main() async {
   // Example 1: Basic template rendering
   print('1. Basic Template Rendering:');
   try {
-    final html1 = await PugServer.render('h1= title\np Welcome to #{name}!',
+    final html1 = await pug.render('h1= title\np Welcome to #{name}!',
         {'title': 'My Server', 'name': 'Dart Backend'});
     print('Output: $html1\n');
   } catch (e) {
@@ -17,7 +17,7 @@ void main() async {
   // Example 2: Pretty printed output
   print('2. Pretty Printed Template:');
   try {
-    final html2 = await PugServer.render(
+    final html2 = await pug.render(
         'doctype html\nhtml\n  head\n    title= pageTitle\n  body\n    h1= message\n    p This is a server-side rendered page.',
         {'pageTitle': 'Server Page', 'message': 'Hello from Dart Server!'},
         {'pretty': true});
@@ -35,7 +35,7 @@ void main() async {
     ];
 
     for (final user in users) {
-      final html = await PugServer.compile(
+      final html = await pug.compile(
           '.user-card\n  h2= user.name\n  p Email: #{user.email}\n  p Role: #{user.role}',
           {'user': user});
       print('User ${user['name']}: $html');
@@ -48,7 +48,7 @@ void main() async {
   // Example 4: Lists and iteration
   print('4. Lists and Iteration:');
   try {
-    final html4 = await PugServer.render(
+    final html4 = await pug.render(
         'h3 Server-side Shopping List\nul\n  each item in items\n    li #{item.name} - \$#{item.price}',
         {
           'items': [
@@ -70,7 +70,7 @@ void main() async {
   try {
     final templateFile = File('test/template.pug');
     if (await templateFile.exists()) {
-      final html5 = await PugServer.renderFile(templateFile, {
+      final html5 = await pug.renderFile(templateFile, {
         'title': 'File-based Example',
         'heading': 'Template from File',
         'message':
@@ -86,4 +86,7 @@ void main() async {
   }
 
   print('=== Server Examples completed ===');
+
+  // Clean up
+  await pug.dispose();
 }

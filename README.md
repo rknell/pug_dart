@@ -12,7 +12,8 @@ A high-performance Dart wrapper for the [Pug.js](https://pugjs.org/) templating 
 - ✅ **File Support**: Render templates directly from files using `dart:io` File objects
 - ✅ **Options Support**: Full support for Pug compilation and rendering options
 - ✅ **Async API**: Non-blocking operations with Future-based API
-- ✅ **Auto Setup**: Automatic Pug.js installation via npm
+- ✅ **Auto Setup**: Automatic Pug.js installation and initialization via npm
+- ✅ **Singleton Pattern**: Global `pug` instance with automatic setup on first use
 - ✅ **Resource Management**: Automatic server lifecycle management with graceful shutdown
 
 ## Architecture
@@ -35,65 +36,36 @@ dependencies:
   pug_dart: ^1.0.0
 ```
 
-2. The library can automatically install Pug.js for you:
+2. **⚠️ IMPORTANT: Node.js and npm must be installed on your system**
+
+This library requires Node.js and npm to be available in your system PATH. Install them from [nodejs.org](https://nodejs.org/) before using this package.
+
+3. The library automatically installs and sets up Pug.js on first use - no manual setup required!
+
+## Quick Start
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
-void main() async {
-  // Check if Pug is available, install if needed
-  if (!await PugServer.isAvailable()) {
-    print('Installing Pug.js...');
-    await PugServer.setup(verbose: true);
-  }
-  
-  // Now you can use Pug templates - server starts automatically
-  final html = await PugServer.render('h1 Hello World');
-  
-  // Clean up when done (optional, happens automatically on app exit)
-  await PugServer.shutdown();
+main() async {
+  var html = await pug.render('h1 Hello World');
+  print('Rendered HTML: $html');
+  await pug.dispose();
 }
 ```
 
-Or install manually:
-```bash
-npm install pug@^3.0.3
-```
+That's it! Just 3 lines and you're rendering Pug templates. Setup happens automatically.
 
 ## Usage
-
-### Setup and Availability Check
-
-```dart
-import 'package:pug_dart/pug_server.dart';
-
-void main() async {
-  // Check if Pug.js is available
-  if (await PugServer.isAvailable()) {
-    print('Pug.js is ready!');
-  } else {
-    // Automatically install Pug.js
-    final success = await PugServer.setup(verbose: true);
-    if (success) {
-      print('Pug.js installed successfully!');
-    } else {
-      print('Failed to install Pug.js');
-      return;
-    }
-  }
-  
-  // Use Pug templates - persistent server starts automatically
-}
-```
 
 ### Basic Template Rendering
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
 void main() async {
-  // Simple template rendering - server starts automatically on first call
-  final html = await PugServer.render(
+  // Simple template rendering - automatic setup on first call
+  final html = await pug.render(
     'h1= title\np Welcome to #{name}!',
     {'title': 'My Site', 'name': 'Dart'}
   );
@@ -101,14 +73,17 @@ void main() async {
   // Output: <h1>My Site</h1><p>Welcome to Dart!</p>
   
   // Subsequent calls are much faster (same server, just socket communication)
-  final html2 = await PugServer.render('p This is fast!');
+  final html2 = await pug.render('p This is fast!');
+  
+  // Clean up when done
+  await pug.dispose();
 }
 ```
 
 ### Template Compilation (for better performance)
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
 void main() async {
   // Compile once, render multiple times
@@ -118,25 +93,27 @@ void main() async {
   ];
   
   for (final user in users) {
-    final html = await PugServer.compile(
+    final html = await pug.compile(
       '.user-card\n  h2= user.name\n  p Email: #{user.email}\n  p Role: #{user.role}',
       {'user': user}
     );
     print(html);
   }
+  
+  await pug.dispose();
 }
 ```
 
 ### File-based Templates
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 import 'dart:io';
 
 void main() async {
   // Render template from file using File objects
   final templateFile = File('templates/layout.pug');
-  final html = await PugServer.renderFile(
+  final html = await pug.renderFile(
     templateFile,
     {
       'title': 'My Website',
@@ -146,17 +123,19 @@ void main() async {
     {'pretty': true, 'cache': true}
   );
   print(html);
+  
+  await pug.dispose();
 }
 ```
 
 ### Advanced Options
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
 void main() async {
   // Using compilation options
-  final html = await PugServer.render(
+  final html = await pug.render(
     'doctype html\nhtml\n  body\n    h1 Hello #{name}',
     {'name': 'World'},
     {
@@ -167,50 +146,86 @@ void main() async {
     }
   );
   print(html);
+  
+  await pug.dispose();
 }
 ```
 
 ### Resource Management
 
 ```dart
-import 'package:pug_dart/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
 void main() async {
   // Server starts automatically on first render
-  await PugServer.render('h1 Hello World');
+  await pug.render('h1 Hello World');
   
   // Do lots of rendering - all use the same persistent server
   for (int i = 0; i < 1000; i++) {
-    await PugServer.render('p Item #{i}', {'i': i});
+    await pug.render('p Item #{i}', {'i': i});
   }
   
-  // Gracefully shut down the server when done (optional)
-  await PugServer.shutdown();
+  // Gracefully shut down the server when done
+  await pug.dispose();
   
   // Server will restart automatically if you render again
-  await PugServer.render('p Server restarted');
+  await pug.render('p Server restarted');
+  await pug.dispose();
 }
 ```
 
 ## API Reference
 
-### PugServer Class
+The main interface is the `pug` singleton instance that automatically handles setup:
 
-The main interface for server-side Pug functionality:
+```dart
+// Automatic setup on first use
+final html = await pug.render(template, data, options);
+final html2 = await pug.renderFile(file, data, options);
+final html3 = await pug.compile(template, data, options);
+final html4 = await pug.compileFile(file, data, options);
 
-#### Static Methods
+// Clean up
+await pug.dispose();
+```
 
-- `Future<bool> setup({bool verbose = false})` - Install Pug.js via npm if not available
-- `Future<bool> isAvailable()` - Check if Pug.js is available for use
-- `Future<String> render(String template, [Map<String, dynamic>? data, Map<String, dynamic>? options])` - Compile and render a template string
-- `Future<String> renderFile(File file, [Map<String, dynamic>? data, Map<String, dynamic>? options])` - Compile and render a template file  
-- `Future<String> compile(String template, [Map<String, dynamic>? data, Map<String, dynamic>? options])` - Compile and render a template string in one step
-- `Future<String> compileFile(File file, [Map<String, dynamic>? data, Map<String, dynamic>? options])` - Compile and render a template file in one step
-- `Future<void> shutdown()` - Gracefully shut down the persistent Node.js server
+### Methods
 
-### Exception Handling
+#### `render(template, [data], [options])` → `Future<String>`
 
-- `PugServerException` - Thrown when Pug operations fail
+Renders a Pug template string with optional data and options. Automatically sets up Pug.js on first call.
+
+- `template` (String): The Pug template source code
+- `data` (Map<String, dynamic>?, optional): Template variables
+- `options` (Map<String, dynamic>?, optional): Pug compilation options
+
+#### `renderFile(file, [data], [options])` → `Future<String>`
+
+Renders a Pug template file with optional data and options. Automatically sets up Pug.js on first call.
+
+- `file` (File): The File object pointing to the Pug template
+- `data` (Map<String, dynamic>?, optional): Template variables  
+- `options` (Map<String, dynamic>?, optional): Pug compilation options
+
+#### `compile(template, [data], [options])` → `Future<String>`
+
+Compiles and renders a Pug template string in one step. Automatically sets up Pug.js on first call.
+
+- `template` (String): The Pug template source code
+- `data` (Map<String, dynamic>?, optional): Template variables
+- `options` (Map<String, dynamic>?, optional): Pug compilation options
+
+#### `compileFile(file, [data], [options])` → `Future<String>`
+
+Compiles and renders a Pug template file in one step. Automatically sets up Pug.js on first call.
+
+- `file` (File): The File object pointing to the Pug template
+- `data` (Map<String, dynamic>?, optional): Template variables
+- `options` (Map<String, dynamic>?, optional): Pug compilation options
+
+#### `dispose()` → `Future<void>`
+
+Disposes resources and shuts down the Pug server. Call this when you're done using Pug to clean up resources.
 
 ## Common Options
 
@@ -236,7 +251,7 @@ For file-based operations (`renderFile`, `compileFile`), the library throws:
 ```dart
 try {
   final templateFile = File('templates/nonexistent.pug');
-  final html = await PugServer.renderFile(templateFile);
+  final html = await pug.renderFile(templateFile);
 } catch (e) {
   if (e is FileSystemException) {
     print('File error: ${e.message}');
@@ -253,7 +268,7 @@ For template compilation/rendering errors:
 
 ```dart
 try {
-  final html = await PugServer.render('invalid[ pug syntax');
+  final html = await pug.render('invalid[ pug syntax');
 } catch (e) {
   if (e is PugServerException) {
     print('Pug error: ${e.message}');
@@ -268,7 +283,7 @@ For server-related issues:
 
 ```dart
 try {
-  final html = await PugServer.render('h1 Hello World');
+  final html = await pug.render('h1 Hello World');
 } catch (e) {
   if (e is PugServerException) {
     print('Server communication error: ${e.message}');

@@ -3,30 +3,9 @@ import 'package:pug_dart/pug_dart.dart';
 import 'dart:io';
 
 void main() {
-  group('PugServer Tests', () {
-    test('setup and availability check', () async {
-      // Check if Pug is available
-      final available = await PugServer.isAvailable();
-
-      if (!available) {
-        // Try to set it up
-        final setupSuccess = await PugServer.setup();
-        expect(setupSuccess, isTrue, reason: 'Setup should succeed');
-
-        // Check availability again
-        final availableAfterSetup = await PugServer.isAvailable();
-        expect(availableAfterSetup, isTrue,
-            reason: 'Should be available after setup');
-      } else {
-        // If already available, setup should still return true
-        final setupSuccess = await PugServer.setup();
-        expect(setupSuccess, isTrue,
-            reason: 'Setup should succeed when already available');
-      }
-    });
-
+  group('Pug Singleton Tests', () {
     test('basic template rendering', () async {
-      final html = await PugServer.render('h1= title\np Welcome to #{name}!',
+      final html = await pug.render('h1= title\np Welcome to #{name}!',
           {'title': 'Test Site', 'name': 'Dart Server'});
 
       expect(html, contains('<h1>Test Site</h1>'));
@@ -35,7 +14,7 @@ void main() {
 
     test('file-based template rendering', () async {
       final templateFile = File('test/template.pug');
-      final html = await PugServer.renderFile(templateFile, {
+      final html = await pug.renderFile(templateFile, {
         'title': 'File Test',
         'heading': 'Template from File',
         'message': 'This template was loaded from a file!',
@@ -53,7 +32,7 @@ void main() {
 
     test('file-based template compilation', () async {
       final templateFile = File('test/template.pug');
-      final html = await PugServer.compileFile(templateFile, {
+      final html = await pug.compileFile(templateFile, {
         'title': 'Compile Test',
         'heading': 'Compiled Template',
         'message': 'This template was compiled from a file!',
@@ -66,7 +45,7 @@ void main() {
     });
 
     test('pretty printed rendering', () async {
-      final html = await PugServer.render(
+      final html = await pug.render(
           'doctype html\nhtml\n  head\n    title= pageTitle\n  body\n    h1= message',
           {'pageTitle': 'Test Page', 'message': 'Hello World'},
           {'pretty': true});
@@ -79,10 +58,10 @@ void main() {
     });
 
     test('template compilation', () async {
-      final html1 = await PugServer.compile('h2= greeting\np= message',
+      final html1 = await pug.compile('h2= greeting\np= message',
           {'greeting': 'Hello', 'message': 'First render'});
 
-      final html2 = await PugServer.compile('h2= greeting\np= message',
+      final html2 = await pug.compile('h2= greeting\np= message',
           {'greeting': 'Hi', 'message': 'Second render'});
 
       expect(html1, contains('<h2>Hello</h2>'));
@@ -92,8 +71,8 @@ void main() {
     });
 
     test('list iteration', () async {
-      final html = await PugServer.render(
-          'ul\n  each item in items\n    li= item.name', {
+      final html =
+          await pug.render('ul\n  each item in items\n    li= item.name', {
         'items': [
           {'name': 'Apple'},
           {'name': 'Banana'},
@@ -107,11 +86,11 @@ void main() {
     });
 
     test('conditional rendering', () async {
-      final htmlVisible = await PugServer.render(
+      final htmlVisible = await pug.render(
           'if show\n  p Visible content\nelse\n  p Hidden content',
           {'show': true});
 
-      final htmlHidden = await PugServer.render(
+      final htmlHidden = await pug.render(
           'if show\n  p Visible content\nelse\n  p Hidden content',
           {'show': false});
 
@@ -122,8 +101,8 @@ void main() {
     });
 
     test('nested object access', () async {
-      final html = await PugServer.render(
-          '.user\n  h3= user.name\n  p= user.details.email', {
+      final html =
+          await pug.render('.user\n  h3= user.name\n  p= user.details.email', {
         'user': {
           'name': 'John Doe',
           'details': {'email': 'john@example.com'}
@@ -135,19 +114,24 @@ void main() {
     });
 
     test('empty data handling', () async {
-      final html = await PugServer.render('p Static content');
+      final html = await pug.render('p Static content');
       expect(html, equals('<p>Static content</p>'));
     });
 
     test('error handling', () async {
-      expect(() => PugServer.render('invalid[ pug syntax'),
+      expect(() => pug.render('invalid[ pug syntax'),
           throwsA(isA<PugServerException>()));
     });
 
     test('file not found error handling', () async {
       final nonExistentFile = File('test/nonexistent.pug');
-      expect(() => PugServer.renderFile(nonExistentFile),
+      expect(() => pug.renderFile(nonExistentFile),
           throwsA(isA<FileSystemException>()));
+    });
+
+    // Cleanup after all tests
+    tearDownAll(() async {
+      await pug.dispose();
     });
   });
 }
