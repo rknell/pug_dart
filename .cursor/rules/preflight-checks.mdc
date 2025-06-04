@@ -4,7 +4,8 @@ globs:
 alwaysApply: false
 ---
 - Analyzer issues all resolved
-- All tests pass
+- Run `dart upgrade --major-versions`
+- Ensure all tests pass with the updated dependencies
 - Review `git diff` and ensure there are no obvious bugs or regressions
 - Update the [README.md](mdc:README.md) with any changes as necessary
 - Update the [CHANGELOG.md](mdc:CHANGELOG.md) and decide on the new version in accordance with semantic versioning with any changes as necessary
