@@ -1,3 +1,11 @@
+/// Embedded JavaScript scripts for Pug.js integration
+///
+/// These scripts are embedded as string constants to ensure they're included
+/// when the package is compiled, avoiding dependency on external script files.
+library embedded_scripts;
+
+/// Embedded pug_server.js script content
+const String pugServerScript = '''
 const pug = require('pug');
 const net = require('net');
 const fs = require('fs');
@@ -22,7 +30,7 @@ const server = net.createServer((socket) => {
     buffer += data.toString();
     
     // Check if we have a complete message (ends with newline)
-    const lines = buffer.split('\n');
+    const lines = buffer.split('\\n');
     if (lines.length > 1) {
       // Process all complete lines except the last (incomplete) one
       for (let i = 0; i < lines.length - 1; i++) {
@@ -50,7 +58,7 @@ function processRequest(socket, requestStr) {
     const response = JSON.stringify({ 
       success: false, 
       error: 'Invalid JSON: ' + parseError.message 
-    }) + '\n';
+    }) + '\\n';
     socket.write(response);
     return;
   }
@@ -84,7 +92,7 @@ function processRequest(socket, requestStr) {
       id: request.id, 
       success: true, 
       result: result 
-    }) + '\n';
+    }) + '\\n';
     socket.write(response);
   } catch (error) {
     const response = JSON.stringify({ 
@@ -92,7 +100,7 @@ function processRequest(socket, requestStr) {
       success: false, 
       error: error.message,
       errorType: error.code || 'unknown'
-    }) + '\n';
+    }) + '\\n';
     socket.write(response);
   }
 }
@@ -123,4 +131,55 @@ process.on('SIGINT', () => {
     }
     process.exit(0);
   });
-}); 
+});
+''';
+
+/// Embedded pug_fallback.js script content
+const String pugFallbackScript = '''
+const pug = require('pug');
+const fs = require('fs');
+
+// Read input from stdin
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  input += chunk;
+});
+
+process.stdin.on('end', () => {
+  try {
+    const request = JSON.parse(input);
+    let result;
+    
+    switch (request.action) {
+      case 'render':
+        result = pug.render(request.template, request.data || {}, request.options || {});
+        break;
+      case 'renderFile':
+        result = pug.renderFile(request.filename, request.data || {}, request.options || {});
+        break;
+      case 'compile':
+        const compiled = pug.compile(request.template, request.options || {});
+        result = compiled(request.data || {});
+        break;
+      case 'compileFile':
+        const compiledFile = pug.compileFile(request.filename, request.options || {});
+        result = compiledFile(request.data || {});
+        break;
+      case 'ping':
+        result = 'pong';
+        break;
+      default:
+        throw new Error('Unknown action: ' + request.action);
+    }
+    
+    console.log(JSON.stringify({ success: true, result: result }));
+  } catch (error) {
+    console.log(JSON.stringify({ 
+      success: false, 
+      error: error.message,
+      errorType: error.code || 'unknown'
+    }));
+  }
+});
+''';

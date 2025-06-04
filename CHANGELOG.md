@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2024-12-28
+
+### Changed
+- **Embedded JavaScript Scripts**: Node.js scripts are now embedded directly in the Dart code as string constants
+- **Improved Compilation Support**: Package now works correctly when compiled, as scripts are no longer external files
+- **Enhanced Reliability**: Eliminated dependency on external script files that could be missing in compiled environments
+
+### Technical Improvements
+- JavaScript scripts (`pug_server.js` and `pug_fallback.js`) are now embedded as constants in `embedded_scripts.dart`
+- Temporary script files are created in the working directory to maintain access to local `node_modules`
+- Automatic cleanup of temporary script files on server shutdown
+- Removed unused internal variables and improved code quality
+
 ## [1.0.0] - 2024-12-XX
 
 ### Added

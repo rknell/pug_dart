@@ -8,11 +8,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
+import 'embedded_scripts.dart';
 
 /// Server-side Pug wrapper that communicates with a persistent Node.js server.
 class Pug {
-  static Process? _nodeProcess;
   static String? _socketPath;
+  static Process? _nodeProcess;
+  static final Set<String> _tempScriptFiles = <String>{};
   static bool _isStarting = false;
 
   /// Sets up Pug.js by running npm install.
@@ -170,6 +172,16 @@ class Pug {
       }
       _socketPath = null;
     }
+
+    // Clean up temporary script files
+    for (final tempFile in _tempScriptFiles) {
+      try {
+        await File(tempFile).delete();
+      } catch (e) {
+        // Ignore errors when deleting temp files
+      }
+    }
+    _tempScriptFiles.clear();
   }
 
   /// Sends a request to the Node.js server and returns the response
@@ -524,40 +536,36 @@ class Pug {
     await _stopServer();
   }
 
-  /// Gets the absolute path to a script file in the scripts directory
+  /// Gets the absolute path to a script file by creating a temporary file from embedded content
   static String _getScriptPath(String scriptName) {
-    // Try to find the script relative to the package
-    final packageDir = _findPackageDirectory();
-    if (packageDir != null) {
-      final scriptPath = '$packageDir/lib/scripts/$scriptName';
-      if (File(scriptPath).existsSync()) {
-        return scriptPath;
-      }
+    final String scriptContent;
+
+    switch (scriptName) {
+      case 'pug_server.js':
+        scriptContent = pugServerScript;
+        break;
+      case 'pug_fallback.js':
+        scriptContent = pugFallbackScript;
+        break;
+      default:
+        throw PugServerException('Unknown script: $scriptName');
     }
 
-    // Fallback: check in current directory
-    final localPath = 'lib/scripts/$scriptName';
-    if (File(localPath).existsSync()) {
-      return File(localPath).absolute.path;
+    try {
+      // Create a temporary file in the current working directory
+      // so it can access local node_modules
+      final tempFile = File('.pug_dart_temp_$scriptName');
+
+      // Write the embedded script content to the temporary file
+      tempFile.writeAsStringSync(scriptContent);
+
+      // Track the temporary file for cleanup
+      _tempScriptFiles.add(tempFile.absolute.path);
+
+      return tempFile.absolute.path;
+    } catch (e) {
+      throw PugServerException('Failed to create temporary script file: $e');
     }
-
-    throw PugServerException('Could not find script file: $scriptName');
-  }
-
-  /// Finds the package directory by looking for pubspec.yaml
-  static String? _findPackageDirectory() {
-    var current = Directory.current;
-
-    // Walk up the directory tree looking for pubspec.yaml
-    while (current.path != current.parent.path) {
-      final pubspecFile = File('${current.path}/pubspec.yaml');
-      if (pubspecFile.existsSync()) {
-        return current.path;
-      }
-      current = current.parent;
-    }
-
-    return null;
   }
 }
 

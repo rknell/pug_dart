@@ -31,6 +31,7 @@ import 'src/pug_server.dart';
 
 /// Export only the exception class for error handling
 export 'src/pug_server.dart' show PugServerException;
+export 'src/embedded_scripts.dart';
 
 /// Singleton wrapper for Pug that automatically handles setup
 class PugInstance {
