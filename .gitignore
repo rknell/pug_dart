@@ -1,0 +1,48 @@
+# Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.pnpm-debug.log
+package-lock.json
+yarn.lock
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.atom/
+.buildlog/
+.history/
+.svn/
+
+# Generated files
+*.js.map
+*.dart.js
+*.dart.js.map
+*.g.dart
+*.freezed.dart
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Coverage reports
+coverage/
+.test_coverage.dart
+lcov.info
+
+# Build outputs
+dist/
+out/
