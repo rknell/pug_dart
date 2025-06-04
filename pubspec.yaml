@@ -1,6 +1,6 @@
 name: pug_dart
 description: A high-performance Dart wrapper for Pug.js templating engine with persistent server and Unix domain sockets.
-version: 0.0.1
+version: 1.0.0
 repository: https://github.com/rknell/pug_dart
 
 environment:
@@ -21,4 +21,3 @@ topics:
 platforms:
   linux:
   macos:
-  windows:
