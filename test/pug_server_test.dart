@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
+import 'package:pug_dart/pug_dart.dart';
 import 'dart:io';
-import '../lib/pug_server.dart';
 
 void main() {
   group('PugServer Tests', () {
@@ -147,7 +147,7 @@ void main() {
     test('file not found error handling', () async {
       final nonExistentFile = File('test/nonexistent.pug');
       expect(() => PugServer.renderFile(nonExistentFile),
-          throwsA(isA<PugServerException>()));
+          throwsA(isA<FileSystemException>()));
     });
   });
 }

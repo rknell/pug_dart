@@ -1,55 +1,19 @@
-/// Server-side Dart wrapper for Pug.js using Node.js processes.
+/// Server-side Dart wrapper for Pug.js using a persistent Node.js server.
 ///
 /// This library provides a way to use Pug templates in server-side Dart
-/// applications by executing Node.js scripts.
+/// applications by communicating with a long-running Node.js server via Unix domain sockets.
 library pug_server;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
+import 'dart:math';
 
-/// Server-side Pug wrapper that executes Node.js to render templates.
+/// Server-side Pug wrapper that communicates with a persistent Node.js server.
 class PugServer {
-  static const String _nodeScript = '''
-const pug = require('pug');
-const fs = require('fs');
-
-// Read input from stdin
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => {
-  input += chunk;
-});
-
-process.stdin.on('end', () => {
-  try {
-    const request = JSON.parse(input);
-    let result;
-    
-    switch (request.action) {
-      case 'render':
-        result = pug.render(request.template, request.data, request.options);
-        break;
-      case 'renderFile':
-        result = pug.renderFile(request.filename, request.data, request.options);
-        break;
-      case 'compile':
-        const compiled = pug.compile(request.template, request.options);
-        result = compiled(request.data || {});
-        break;
-      case 'compileFile':
-        const compiledFile = pug.compileFile(request.filename, request.options);
-        result = compiledFile(request.data || {});
-        break;
-      default:
-        throw new Error('Unknown action: ' + request.action);
-    }
-    
-    console.log(JSON.stringify({ success: true, result: result }));
-  } catch (error) {
-    console.log(JSON.stringify({ success: false, error: error.message }));
-  }
-});
-''';
+  static Process? _nodeProcess;
+  static String? _socketPath;
+  static bool _isStarting = false;
 
   /// Sets up Pug.js by running npm install.
   ///
@@ -110,6 +74,377 @@ process.stdin.on('end', () => {
     return await _isPugAvailable();
   }
 
+  /// Starts the persistent Node.js server if not already running.
+  static Future<void> _ensureServerRunning() async {
+    if (Platform.isWindows) {
+      // Windows uses fallback process-per-request approach, no server needed
+      return;
+    }
+
+    if (_isStarting) {
+      // Wait for the current startup to complete
+      while (_isStarting) {
+        await Future.delayed(Duration(milliseconds: 50));
+      }
+      return;
+    }
+
+    if (_nodeProcess != null && _socketPath != null) {
+      // Check if server is still responsive
+      try {
+        await _sendRequest({'action': 'ping'});
+        return; // Server is running and responsive
+      } catch (e) {
+        // Server is not responsive, restart it
+        await _stopServer();
+      }
+    }
+
+    _isStarting = true;
+    try {
+      await _startServer();
+    } finally {
+      _isStarting = false;
+    }
+  }
+
+  /// Starts the Node.js server
+  static Future<void> _startServer() async {
+    // Generate a unique socket path
+    final random = Random();
+    final socketName = 'pug_server_${random.nextInt(999999)}.sock';
+    _socketPath =
+        Platform.isWindows ? '\\\\.\\pipe\\$socketName' : '/tmp/$socketName';
+
+    // Create the server script with the socket path embedded
+    final serverScript = '''
+const pug = require('pug');
+const net = require('net');
+const fs = require('fs');
+
+const socketPath = '$_socketPath';
+
+// Clean up socket file if it exists
+if (fs.existsSync(socketPath)) {
+  fs.unlinkSync(socketPath);
+}
+
+const server = net.createServer((socket) => {
+  let buffer = '';
+  
+  socket.on('data', (data) => {
+    buffer += data.toString();
+    
+    // Check if we have a complete message (ends with newline)
+    const lines = buffer.split('\\n');
+    if (lines.length > 1) {
+      // Process all complete lines except the last (incomplete) one
+      for (let i = 0; i < lines.length - 1; i++) {
+        const line = lines[i].trim();
+        if (line) {
+          processRequest(socket, line);
+        }
+      }
+      // Keep the incomplete line in buffer
+      buffer = lines[lines.length - 1];
+    }
+  });
+  
+  socket.on('error', (err) => {
+    console.error('Socket error:', err);
+  });
+});
+
+function processRequest(socket, requestStr) {
+  let request;
+  try {
+    request = JSON.parse(requestStr);
+  } catch (parseError) {
+    // JSON parsing failed - send error without request ID
+    const response = JSON.stringify({ 
+      success: false, 
+      error: 'Invalid JSON: ' + parseError.message 
+    }) + '\\n';
+    socket.write(response);
+    return;
+  }
+
+  try {
+    let result;
+    
+    switch (request.action) {
+      case 'render':
+        result = pug.render(request.template, request.data || {}, request.options || {});
+        break;
+      case 'renderFile':
+        result = pug.renderFile(request.filename, request.data || {}, request.options || {});
+        break;
+      case 'compile':
+        const compiled = pug.compile(request.template, request.options || {});
+        result = compiled(request.data || {});
+        break;
+      case 'compileFile':
+        const compiledFile = pug.compileFile(request.filename, request.options || {});
+        result = compiledFile(request.data || {});
+        break;
+      case 'ping':
+        result = 'pong';
+        break;
+      default:
+        throw new Error('Unknown action: ' + request.action);
+    }
+    
+    const response = JSON.stringify({ 
+      id: request.id, 
+      success: true, 
+      result: result 
+    }) + '\\n';
+    socket.write(response);
+  } catch (error) {
+    const response = JSON.stringify({ 
+      id: request.id, 
+      success: false, 
+      error: error.message,
+      errorType: error.code || 'unknown'
+    }) + '\\n';
+    socket.write(response);
+  }
+}
+
+server.listen(socketPath, () => {
+  console.log('ready');
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  server.close(() => {
+    if (fs.existsSync(socketPath)) {
+      fs.unlinkSync(socketPath);
+    }
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  server.close(() => {
+    if (fs.existsSync(socketPath)) {
+      fs.unlinkSync(socketPath);
+    }
+    process.exit(0);
+  });
+});
+''';
+
+    // Start the Node.js server
+    _nodeProcess = await Process.start('node', ['-e', serverScript]);
+
+    // Wait for the server to output "ready"
+    final readyCompleter = Completer<void>();
+    _nodeProcess!.stdout.listen((data) {
+      final output = String.fromCharCodes(data);
+      if (output.contains('ready')) {
+        readyCompleter.complete();
+      }
+    });
+
+    _nodeProcess!.stderr.listen((data) {
+      final error = String.fromCharCodes(data);
+      if (error.trim().isNotEmpty) {
+        print('Node.js server error: $error');
+      }
+    });
+
+    try {
+      await readyCompleter.future.timeout(Duration(seconds: 10));
+    } catch (e) {
+      await _stopServer();
+      throw PugServerException('Failed to start Node.js server: $e');
+    }
+
+    // Test connection
+    try {
+      await _sendRequest({'action': 'ping'});
+    } catch (e) {
+      await _stopServer();
+      throw PugServerException('Failed to connect to Node.js server: $e');
+    }
+  }
+
+  /// Stops the Node.js server
+  static Future<void> _stopServer() async {
+    if (_nodeProcess != null) {
+      _nodeProcess!.kill();
+      await _nodeProcess!.exitCode;
+      _nodeProcess = null;
+    }
+
+    if (_socketPath != null && !Platform.isWindows) {
+      try {
+        await File(_socketPath!).delete();
+      } catch (e) {
+        // Ignore errors when deleting socket file
+      }
+      _socketPath = null;
+    }
+  }
+
+  /// Sends a request to the Node.js server and returns the response
+  static Future<Map<String, dynamic>> _sendRequest(
+      Map<String, dynamic> request) async {
+    if (Platform.isWindows) {
+      // Fallback to old process-per-request approach for Windows
+      return await _sendRequestViaProcess(request);
+    }
+
+    if (_socketPath == null) {
+      throw PugServerException('Server not running');
+    }
+
+    // Add unique ID to request
+    final requestId = Random().nextInt(999999).toString();
+    request['id'] = requestId;
+
+    Socket? socket;
+    try {
+      // Connect to the Unix domain socket
+      socket = await Socket.connect(
+          InternetAddress(_socketPath!, type: InternetAddressType.unix), 0);
+
+      final completer = Completer<Map<String, dynamic>>();
+      String buffer = '';
+
+      socket.listen(
+        (data) {
+          buffer += String.fromCharCodes(data);
+
+          // Check for complete response (ends with newline)
+          final lines = buffer.split('\n');
+          for (final line in lines) {
+            if (line.trim().isNotEmpty) {
+              try {
+                final response = jsonDecode(line) as Map<String, dynamic>;
+                if (response['id'] == requestId) {
+                  completer.complete(response);
+                  return;
+                }
+              } catch (e) {
+                // Invalid JSON, continue reading
+              }
+            }
+          }
+        },
+        onError: (error) {
+          if (!completer.isCompleted) {
+            completer.completeError(PugServerException('Socket error: $error'));
+          }
+        },
+        onDone: () {
+          if (!completer.isCompleted) {
+            completer.completeError(
+                PugServerException('Connection closed unexpectedly'));
+          }
+        },
+      );
+
+      // Send the request
+      final requestStr = jsonEncode(request) + '\n';
+      socket.write(requestStr);
+
+      // Wait for response with timeout
+      final response = await completer.future.timeout(
+        Duration(seconds: 30),
+        onTimeout: () => throw PugServerException('Request timeout'),
+      );
+
+      return response;
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  /// Fallback method for Windows - uses the old process-per-request approach
+  static Future<Map<String, dynamic>> _sendRequestViaProcess(
+      Map<String, dynamic> request) async {
+    const nodeScript = '''
+const pug = require('pug');
+const fs = require('fs');
+
+// Read input from stdin
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  input += chunk;
+});
+
+process.stdin.on('end', () => {
+  try {
+    const request = JSON.parse(input);
+    let result;
+    
+    switch (request.action) {
+      case 'render':
+        result = pug.render(request.template, request.data || {}, request.options || {});
+        break;
+      case 'renderFile':
+        result = pug.renderFile(request.filename, request.data || {}, request.options || {});
+        break;
+      case 'compile':
+        const compiled = pug.compile(request.template, request.options || {});
+        result = compiled(request.data || {});
+        break;
+      case 'compileFile':
+        const compiledFile = pug.compileFile(request.filename, request.options || {});
+        result = compiledFile(request.data || {});
+        break;
+      case 'ping':
+        result = 'pong';
+        break;
+      default:
+        throw new Error('Unknown action: ' + request.action);
+    }
+    
+    console.log(JSON.stringify({ success: true, result: result }));
+  } catch (error) {
+    console.log(JSON.stringify({ 
+      success: false, 
+      error: error.message,
+      errorType: error.code || 'unknown'
+    }));
+  }
+});
+''';
+
+    final process = await Process.start('node', ['-e', nodeScript]);
+
+    // Send the request as JSON to stdin
+    process.stdin.writeln(jsonEncode(request));
+    await process.stdin.close();
+
+    // Read the response from stdout
+    final stdout = await process.stdout.transform(utf8.decoder).join();
+    final stderr = await process.stderr.transform(utf8.decoder).join();
+
+    final exitCode = await process.exitCode;
+
+    if (exitCode != 0) {
+      throw PugServerException(
+          'Node.js process failed with exit code $exitCode: $stderr');
+    }
+
+    try {
+      final response = jsonDecode(stdout) as Map<String, dynamic>;
+      return response;
+    } catch (e) {
+      throw PugServerException(
+          'Failed to parse Node.js response: $e\nOutput: $stdout');
+    }
+  }
+
   /// Internal method to check if Pug is available
   static Future<bool> _isPugAvailable() async {
     try {
@@ -164,6 +499,8 @@ process.stdin.on('end', () => {
   ///
   /// Returns the rendered HTML as a String.
   ///
+  /// Throws [PugServerException] for Pug compilation/rendering errors.
+  ///
   /// Example:
   /// ```dart
   /// final html = await PugServer.render(
@@ -176,6 +513,8 @@ process.stdin.on('end', () => {
     Map<String, dynamic>? data,
     Map<String, dynamic>? options,
   ]) async {
+    await _ensureServerRunning();
+
     final request = {
       'action': 'render',
       'template': template,
@@ -183,7 +522,13 @@ process.stdin.on('end', () => {
       'options': options,
     };
 
-    return await _executeNodeScript(request);
+    final response = await _sendRequest(request);
+
+    if (response['success'] == true) {
+      return response['result'] as String;
+    } else {
+      throw PugServerException('Pug render error: ${response['error']}');
+    }
   }
 
   /// Renders a Pug template file with optional data and options.
@@ -193,6 +538,9 @@ process.stdin.on('end', () => {
   /// [options] is a Map containing Pug options (optional).
   ///
   /// Returns the rendered HTML as a String.
+  ///
+  /// Throws [FileSystemException] if the template file is not found.
+  /// Throws [PugServerException] for Pug compilation/rendering errors.
   ///
   /// Example:
   /// ```dart
@@ -207,6 +555,8 @@ process.stdin.on('end', () => {
     Map<String, dynamic>? data,
     Map<String, dynamic>? options,
   ]) async {
+    await _ensureServerRunning();
+
     final request = {
       'action': 'renderFile',
       'filename': file.absolute.path,
@@ -214,7 +564,13 @@ process.stdin.on('end', () => {
       'options': options,
     };
 
-    return await _executeNodeScript(request);
+    final response = await _sendRequest(request);
+
+    if (response['success'] == true) {
+      return response['result'] as String;
+    } else {
+      _throwAppropriateException(response, file.path);
+    }
   }
 
   /// Compiles and renders a Pug template string in one step.
@@ -224,6 +580,8 @@ process.stdin.on('end', () => {
   /// [options] is a Map containing Pug compilation options (optional).
   ///
   /// Returns the rendered HTML as a String.
+  ///
+  /// Throws [PugServerException] for Pug compilation/rendering errors.
   ///
   /// Example:
   /// ```dart
@@ -237,6 +595,8 @@ process.stdin.on('end', () => {
     Map<String, dynamic>? data,
     Map<String, dynamic>? options,
   ]) async {
+    await _ensureServerRunning();
+
     final request = {
       'action': 'compile',
       'template': template,
@@ -244,7 +604,13 @@ process.stdin.on('end', () => {
       'options': options,
     };
 
-    return await _executeNodeScript(request);
+    final response = await _sendRequest(request);
+
+    if (response['success'] == true) {
+      return response['result'] as String;
+    } else {
+      throw PugServerException('Pug compile error: ${response['error']}');
+    }
   }
 
   /// Compiles and renders a Pug template file in one step.
@@ -254,6 +620,9 @@ process.stdin.on('end', () => {
   /// [options] is a Map containing Pug compilation options (optional).
   ///
   /// Returns the rendered HTML as a String.
+  ///
+  /// Throws [FileSystemException] if the template file is not found.
+  /// Throws [PugServerException] for Pug compilation/rendering errors.
   ///
   /// Example:
   /// ```dart
@@ -268,6 +637,8 @@ process.stdin.on('end', () => {
     Map<String, dynamic>? data,
     Map<String, dynamic>? options,
   ]) async {
+    await _ensureServerRunning();
+
     final request = {
       'action': 'compileFile',
       'filename': file.absolute.path,
@@ -275,40 +646,51 @@ process.stdin.on('end', () => {
       'options': options,
     };
 
-    return await _executeNodeScript(request);
+    final response = await _sendRequest(request);
+
+    if (response['success'] == true) {
+      return response['result'] as String;
+    } else {
+      _throwAppropriateException(response, file.path);
+    }
   }
 
-  /// Executes the Node.js script with the given request.
-  static Future<String> _executeNodeScript(Map<String, dynamic> request) async {
-    final process = await Process.start('node', ['-e', _nodeScript]);
+  /// Throws the appropriate exception based on the error response
+  static Never _throwAppropriateException(
+      Map<String, dynamic> response, String? filePath) {
+    final error = response['error'] as String;
+    final errorType = response['errorType'] as String?;
 
-    // Send the request as JSON to stdin
-    process.stdin.writeln(jsonEncode(request));
-    await process.stdin.close();
-
-    // Read the response from stdout
-    final stdout = await process.stdout.transform(utf8.decoder).join();
-    final stderr = await process.stderr.transform(utf8.decoder).join();
-
-    final exitCode = await process.exitCode;
-
-    if (exitCode != 0) {
-      throw PugServerException(
-          'Node.js process failed with exit code $exitCode: $stderr');
+    // Check for file not found errors
+    if (error.contains('ENOENT') ||
+        error.contains('no such file') ||
+        error.contains('cannot resolve') ||
+        errorType == 'ENOENT') {
+      throw FileSystemException(
+          'Template file not found', filePath, OSError(error));
     }
 
-    try {
-      final response = jsonDecode(stdout) as Map<String, dynamic>;
-
-      if (response['success'] == true) {
-        return response['result'] as String;
-      } else {
-        throw PugServerException('Pug error: ${response['error']}');
-      }
-    } catch (e) {
-      throw PugServerException(
-          'Failed to parse Node.js response: $e\nOutput: $stdout');
+    // Check for permission errors
+    if (error.contains('EACCES') || errorType == 'EACCES') {
+      throw FileSystemException('Permission denied', filePath, OSError(error));
     }
+
+    // Default to PugServerException
+    throw PugServerException('Pug error: $error');
+  }
+
+  /// Stops the persistent Node.js server.
+  ///
+  /// Call this when you're done using PugServer to clean up resources.
+  /// The server will be automatically restarted if needed on the next render call.
+  ///
+  /// Example:
+  /// ```dart
+  /// // When your app is shutting down
+  /// await PugServer.shutdown();
+  /// ```
+  static Future<void> shutdown() async {
+    await _stopServer();
   }
 }
 

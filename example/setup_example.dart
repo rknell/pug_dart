@@ -1,4 +1,4 @@
-import '../lib/pug_server.dart';
+import 'package:pug_dart/pug_dart.dart';
 
 void main() async {
   print('=== Pug Server Setup Example ===\n');
