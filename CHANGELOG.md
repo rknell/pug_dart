@@ -14,29 +14,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dispose()` method as alias for `shutdown()` with cleaner semantics
 - New `PugInstance` class wrapping the static `PugServer` methods
 - Automatic initialization tracking to prevent redundant setup calls
+- **Node.js/npm requirement warning**: Added explicit warning in installation documentation
 
 ### Changed
 - **BREAKING**: Primary API is now the global `pug` instance instead of static `PugServer` methods
 - **BREAKING**: Teardown method renamed from `shutdown()` to `dispose()` 
+- **BREAKING**: `PugServer` class is no longer exported - users must use the `pug` singleton
+- **BREAKING**: `setup()` and `isAvailable()` methods are now private - setup is fully automatic
 - Default setup now happens silently (non-verbose) for better user experience
 - Improved documentation with singleton pattern examples
 - Updated quick start guide to show zero-configuration usage
+- Simplified example files to demonstrate automatic setup
+- Updated all tests to use new singleton API
+
+### Removed
+- **BREAKING**: Manual setup documentation section (setup is now automatic)
+- **BREAKING**: Public access to `setup()` and `isAvailable()` methods
+- **BREAKING**: Direct access to `PugServer` static methods
+- Setup example file (replaced with automatic setup demonstration)
 
 ### Improved
 - User experience: Just `import` and use `pug.render()` - no setup required
 - API consistency: Single instance pattern matches common Dart conventions
 - Resource management: Clearer separation between dispose and automatic restart
+- Documentation clarity: Removed confusing manual setup options
 
 ### Migration Guide
 ```dart
-// Old API (still available via PugServer class)
+// Old API (no longer available)
 if (!await PugServer.isAvailable()) {
   await PugServer.setup();
 }
 final html = await PugServer.render('h1 Hello');
 await PugServer.shutdown();
 
-// New API (recommended)
+// New API (only way to use the library)
 final html = await pug.render('h1 Hello');
 await pug.dispose();
 ```
