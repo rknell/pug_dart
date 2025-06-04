@@ -174,6 +174,61 @@ void main() async {
 }
 ```
 
+### Auto-Cleanup and Crash Recovery
+
+PugDart includes comprehensive auto-cleanup mechanisms to handle crashes, improper disposal, and orphaned processes:
+
+#### Built-in Safety Features
+
+- **Signal Handlers**: Automatically registers SIGINT and SIGTERM handlers for graceful shutdown
+- **Process Monitoring**: Health checks monitor server responsiveness and restart failed servers
+- **PID File Management**: Tracks server processes with PID files for cleanup after crashes
+- **Orphan Detection**: Automatically detects and cleans up orphaned resources on startup
+- **Resource Tracking**: Tracks all temporary files and sockets for comprehensive cleanup
+
+#### Automatic Error Recovery
+
+PugDart automatically handles various failure scenarios without any manual intervention:
+
+```dart
+import 'package:pug_dart/pug_dart.dart';
+
+void main() async {
+  // If the server crashes during rendering, it will automatically restart
+  for (int i = 0; i < 100; i++) {
+    try {
+      await pug.render('p Rendering #{i}', {'i': i});
+    } catch (e) {
+      print('Render failed, but will retry: $e');
+      // The next render call will automatically restart the server
+    }
+  }
+  
+  await pug.dispose();
+}
+```
+
+#### Proper Resource Management
+
+Always use proper resource management to ensure cleanup:
+
+```dart
+import 'package:pug_dart/pug_dart.dart';
+
+void main() async {
+  try {
+    // Your application code
+    await pug.render('h1 Hello World');
+  } catch (e) {
+    // Handle errors
+    print('Error: $e');
+  } finally {
+    // Ensure cleanup happens even if something goes wrong
+    await pug.dispose();
+  }
+}
+```
+
 ## API Reference
 
 The main interface is the `pug` singleton instance that automatically handles setup:

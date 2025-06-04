@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2024-12-29
+
+### Added
+- **Comprehensive Auto-Cleanup System**: Automatic cleanup mechanisms for crash recovery and orphaned process management
+- **Signal Handlers**: Automatic registration of SIGINT and SIGTERM handlers for graceful shutdown
+- **Process Monitoring**: Health checks monitor server responsiveness and automatically restart failed servers
+- **PID File Management**: Server processes are tracked with PID files for cleanup after crashes
+- **Orphan Detection**: Automatically detects and cleans up orphaned resources from previous runs
+- **Resource Tracking**: Comprehensive tracking of temporary files, sockets, and processes for cleanup
+- **Crash Recovery**: Automatic server restart on communication failures
+
+### Changed
+- **Socket Connection**: Improved Unix domain socket connection handling with better error recovery
+- **Cleanup Timing**: Orphan cleanup is now scheduled after server startup to prevent interference
+- **Script File Management**: Temporary script files older than 1 hour are automatically cleaned up
+- **Error Handling**: Enhanced error handling for socket communication with automatic restart capability
+
+### Technical Improvements
+- Added health monitoring with 30-second intervals for server responsiveness
+- Implemented smart cleanup that only removes old files (1+ hours) to avoid conflicts
+- Enhanced process detection and safe termination for both Unix and Windows systems
+- Improved socket file management with in-use detection
+- Added comprehensive emergency cleanup for unexpected shutdowns
+- Better separation of concerns between server management and cleanup operations
+
+### Documentation
+- Added "Auto-Cleanup and Crash Recovery" section to README
+- Documented built-in safety features and automatic error recovery
+- Added examples of proper resource management patterns
+- Removed manual cleanup script documentation (library handles everything automatically)
+
 ## [1.1.0] - 2024-12-28
 
 ### Changed

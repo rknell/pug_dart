@@ -14,8 +14,203 @@ import 'embedded_scripts.dart';
 class Pug {
   static String? _socketPath;
   static Process? _nodeProcess;
+  static String? _pidFilePath;
   static final Set<String> _tempScriptFiles = <String>{};
   static bool _isStarting = false;
+  static bool _shutdownHookRegistered = false;
+  static Timer? _healthCheckTimer;
+  static const Duration _healthCheckInterval = Duration(seconds: 30);
+  static const String _pidFilePrefix = '.pug_dart_server_';
+
+  /// Registers shutdown hooks and cleanup mechanisms for automatic resource management
+  static void _registerShutdownHooks() {
+    if (_shutdownHookRegistered) return;
+    _shutdownHookRegistered = true;
+
+    // Register process exit handler
+    ProcessSignal.sigint.watch().listen((_) async {
+      await _emergencyCleanup();
+      exit(0);
+    });
+
+    ProcessSignal.sigterm.watch().listen((_) async {
+      await _emergencyCleanup();
+      exit(0);
+    });
+
+    // Schedule orphan cleanup for after server starts
+    Timer(Duration(seconds: 5), () => _cleanupOrphanedResources());
+  }
+
+  /// Emergency cleanup for unexpected shutdowns
+  static Future<void> _emergencyCleanup() async {
+    _healthCheckTimer?.cancel();
+    await _stopServer();
+    await _cleanupPidFiles();
+  }
+
+  /// Cleans up orphaned processes and temporary files from previous runs
+  static Future<void> _cleanupOrphanedResources() async {
+    try {
+      final directory = Directory('.');
+      final pidFiles = await directory
+          .list()
+          .where((entity) =>
+              entity is File && entity.path.contains(_pidFilePrefix))
+          .cast<File>()
+          .toList();
+
+      for (final pidFile in pidFiles) {
+        await _cleanupPidFile(pidFile);
+      }
+
+      // Clean up orphaned socket files
+      if (!Platform.isWindows) {
+        final tempDir = Directory('/tmp');
+        if (await tempDir.exists()) {
+          final socketFiles = await tempDir
+              .list()
+              .where((entity) =>
+                  entity is File &&
+                  entity.path.contains('pug_server_') &&
+                  entity.path.endsWith('.sock'))
+              .cast<File>()
+              .toList();
+
+          for (final socketFile in socketFiles) {
+            try {
+              await socketFile.delete();
+            } catch (e) {
+              // Ignore cleanup errors
+            }
+          }
+        }
+      }
+
+      // Clean up OLD orphaned script files (older than 1 hour)
+      final scriptFiles = await directory
+          .list()
+          .where((entity) =>
+              entity is File && entity.path.contains('.pug_dart_temp_'))
+          .cast<File>()
+          .toList();
+
+      for (final scriptFile in scriptFiles) {
+        try {
+          final stat = await scriptFile.stat();
+          final age = DateTime.now().difference(stat.modified);
+
+          // Only clean up files older than 1 hour
+          if (age.inHours >= 1) {
+            await scriptFile.delete();
+          }
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+    } catch (e) {
+      // Ignore cleanup errors during startup
+    }
+  }
+
+  /// Cleans up a specific PID file and associated process
+  static Future<void> _cleanupPidFile(File pidFile) async {
+    try {
+      final pidStr = await pidFile.readAsString();
+      final pid = int.tryParse(pidStr.trim());
+
+      if (pid != null) {
+        // Check if process is still running and kill it if it's a pug server
+        if (await _isProcessRunning(pid)) {
+          await _killProcessSafely(pid);
+        }
+      }
+
+      await pidFile.delete();
+    } catch (e) {
+      // Ignore individual cleanup errors
+    }
+  }
+
+  /// Safely checks if a process is running
+  static Future<bool> _isProcessRunning(int pid) async {
+    try {
+      if (Platform.isWindows) {
+        final result = await Process.run('tasklist', ['/FI', 'PID eq $pid']);
+        return result.stdout.toString().contains('$pid');
+      } else {
+        final result = await Process.run('kill', ['-0', '$pid']);
+        return result.exitCode == 0;
+      }
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Safely kills a process
+  static Future<void> _killProcessSafely(int pid) async {
+    try {
+      if (Platform.isWindows) {
+        await Process.run('taskkill', ['/F', '/PID', '$pid']);
+      } else {
+        // Try graceful shutdown first
+        await Process.run('kill', ['-TERM', '$pid']);
+        await Future.delayed(Duration(seconds: 2));
+
+        // Force kill if still running
+        if (await _isProcessRunning(pid)) {
+          await Process.run('kill', ['-KILL', '$pid']);
+        }
+      }
+    } catch (e) {
+      // Ignore kill errors
+    }
+  }
+
+  /// Creates and manages a PID file for the server process
+  static Future<void> _createPidFile(int pid) async {
+    try {
+      final random = Random();
+      _pidFilePath = '$_pidFilePrefix${random.nextInt(999999)}.pid';
+      final pidFile = File(_pidFilePath!);
+      await pidFile.writeAsString(pid.toString());
+    } catch (e) {
+      // PID file creation is not critical
+    }
+  }
+
+  /// Cleans up all PID files
+  static Future<void> _cleanupPidFiles() async {
+    if (_pidFilePath != null) {
+      try {
+        await File(_pidFilePath!).delete();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+      _pidFilePath = null;
+    }
+  }
+
+  /// Starts health monitoring for the server process
+  static void _startHealthMonitoring() {
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = Timer.periodic(_healthCheckInterval, (timer) async {
+      if (_nodeProcess != null) {
+        try {
+          await _sendRequest({'action': 'ping'});
+        } catch (e) {
+          // Server is not responsive, restart it
+          await _restartServer();
+        }
+      }
+    });
+  }
+
+  /// Restarts the server after a failure
+  static Future<void> _restartServer() async {
+    await _stopServer();
+    await _startServer();
+  }
 
   /// Sets up Pug.js by running npm install.
   ///
@@ -78,6 +273,8 @@ class Pug {
 
   /// Starts the persistent Node.js server if not already running.
   static Future<void> _ensureServerRunning() async {
+    _registerShutdownHooks(); // Ensure cleanup hooks are registered
+
     if (Platform.isWindows) {
       // Windows uses fallback process-per-request approach, no server needed
       return;
@@ -105,6 +302,7 @@ class Pug {
     _isStarting = true;
     try {
       await _startServer();
+      _startHealthMonitoring();
     } finally {
       _isStarting = false;
     }
@@ -123,6 +321,9 @@ class Pug {
 
     // Start the Node.js server
     _nodeProcess = await Process.start('node', [scriptPath, _socketPath!]);
+
+    // Create PID file for cleanup
+    await _createPidFile(_nodeProcess!.pid);
 
     // Wait for the server to output "ready"
     final readyCompleter = Completer<void>();
@@ -158,6 +359,8 @@ class Pug {
 
   /// Stops the Node.js server
   static Future<void> _stopServer() async {
+    _healthCheckTimer?.cancel();
+
     if (_nodeProcess != null) {
       _nodeProcess!.kill();
       await _nodeProcess!.exitCode;
@@ -172,6 +375,8 @@ class Pug {
       }
       _socketPath = null;
     }
+
+    await _cleanupPidFiles();
 
     // Clean up temporary script files
     for (final tempFile in _tempScriptFiles) {
@@ -200,78 +405,79 @@ class Pug {
     final requestId = Random().nextInt(999999).toString();
     request['id'] = requestId;
 
-    Socket? socket;
     try {
-      // Connect to the Unix domain socket
-      socket = await Socket.connect(
+      final socket = await Socket.connect(
           InternetAddress(_socketPath!, type: InternetAddressType.unix), 0);
 
-      final completer = Completer<Map<String, dynamic>>();
+      final requestJson = jsonEncode(request) + '\n';
+      socket.write(requestJson);
+
+      final responseCompleter = Completer<Map<String, dynamic>>();
       String buffer = '';
 
       socket.listen(
         (data) {
           buffer += String.fromCharCodes(data);
-
-          // Check for complete response (ends with newline)
           final lines = buffer.split('\n');
-          for (final line in lines) {
-            if (line.trim().isNotEmpty) {
+
+          for (int i = 0; i < lines.length - 1; i++) {
+            final line = lines[i].trim();
+            if (line.isNotEmpty) {
               try {
                 final response = jsonDecode(line) as Map<String, dynamic>;
                 if (response['id'] == requestId) {
-                  completer.complete(response);
-                  return;
+                  responseCompleter.complete(response);
+                  break;
                 }
               } catch (e) {
-                // Invalid JSON, continue reading
+                // Invalid JSON, continue waiting
               }
             }
           }
+          buffer = lines.last;
         },
         onError: (error) {
-          if (!completer.isCompleted) {
-            completer.completeError(PugServerException('Socket error: $error'));
+          if (!responseCompleter.isCompleted) {
+            responseCompleter.completeError(
+                PugServerException('Socket communication error: $error'));
           }
         },
         onDone: () {
-          if (!completer.isCompleted) {
-            completer.completeError(
-                PugServerException('Connection closed unexpectedly'));
+          if (!responseCompleter.isCompleted) {
+            responseCompleter.completeError(
+                PugServerException('Socket closed unexpectedly'));
           }
         },
       );
 
-      // Send the request
-      final requestStr = jsonEncode(request) + '\n';
-      socket.write(requestStr);
+      final response =
+          await responseCompleter.future.timeout(Duration(seconds: 30));
 
-      // Wait for response with timeout
-      final response = await completer.future.timeout(
-        Duration(seconds: 30),
-        onTimeout: () => throw PugServerException('Request timeout'),
-      );
-
+      await socket.close();
       return response;
-    } finally {
-      socket?.destroy();
+    } catch (e) {
+      if (e is SocketException || e is TimeoutException) {
+        // Server might be down, try to restart
+        await _restartServer();
+      }
+      rethrow;
     }
   }
 
-  /// Fallback method for Windows - uses the old process-per-request approach
+  /// Fallback method using process-per-request for Windows or when socket fails
   static Future<Map<String, dynamic>> _sendRequestViaProcess(
       Map<String, dynamic> request) async {
     final scriptPath = _getScriptPath('pug_fallback.js');
+
     final process = await Process.start('node', [scriptPath]);
 
-    // Send the request as JSON to stdin
-    process.stdin.writeln(jsonEncode(request));
+    // Send request as JSON
+    process.stdin.write(jsonEncode(request));
     await process.stdin.close();
 
-    // Read the response from stdout
+    // Read response
     final stdout = await process.stdout.transform(utf8.decoder).join();
     final stderr = await process.stderr.transform(utf8.decoder).join();
-
     final exitCode = await process.exitCode;
 
     if (exitCode != 0) {
@@ -280,36 +486,28 @@ class Pug {
     }
 
     try {
-      final response = jsonDecode(stdout) as Map<String, dynamic>;
-      return response;
+      return jsonDecode(stdout) as Map<String, dynamic>;
     } catch (e) {
-      throw PugServerException(
-          'Failed to parse Node.js response: $e\nOutput: $stdout');
+      throw PugServerException('Invalid JSON response: $stdout');
     }
   }
 
-  /// Internal method to check if Pug is available
+  /// Checks if Pug.js is available by trying to run it
   static Future<bool> _isPugAvailable() async {
     try {
-      final result = await Process.run(
-          'node', ['-e', 'console.log(require("pug").render("p test"))']);
+      final result = await Process.run('node', ['-e', 'require("pug")']);
       return result.exitCode == 0 &&
-          result.stdout.toString().contains('<p>test</p>');
+          !result.stderr.toString().contains('Cannot find module');
     } catch (e) {
       return false;
     }
   }
 
-  /// Internal method to install Pug locally
+  /// Installs Pug.js locally
   static Future<bool> _installPugLocally(bool verbose) async {
     try {
-      if (verbose) print('Running: npm install pug');
+      if (verbose) print('Installing Pug.js locally...');
       final result = await Process.run('npm', ['install', 'pug']);
-
-      if (verbose && result.stderr.toString().isNotEmpty) {
-        print('npm stderr: ${result.stderr}');
-      }
-
       return result.exitCode == 0;
     } catch (e) {
       if (verbose) print('Local install failed: $e');
@@ -317,16 +515,11 @@ class Pug {
     }
   }
 
-  /// Internal method to install Pug globally
+  /// Installs Pug.js globally
   static Future<bool> _installPugGlobally(bool verbose) async {
     try {
-      if (verbose) print('Running: npm install -g pug');
+      if (verbose) print('Installing Pug.js globally...');
       final result = await Process.run('npm', ['install', '-g', 'pug']);
-
-      if (verbose && result.stderr.toString().isNotEmpty) {
-        print('npm stderr: ${result.stderr}');
-      }
-
       return result.exitCode == 0;
     } catch (e) {
       if (verbose) print('Global install failed: $e');
@@ -338,7 +531,7 @@ class Pug {
   ///
   /// [template] is the Pug template source code.
   /// [data] is a Map containing template variables (optional).
-  /// [options] is a Map containing Pug options (optional).
+  /// [options] is a Map containing Pug rendering options (optional).
   ///
   /// Returns the rendered HTML as a String.
   ///
@@ -347,8 +540,8 @@ class Pug {
   /// Example:
   /// ```dart
   /// final html = await PugServer.render(
-  ///   'h1= title\np Welcome to #{name}!',
-  ///   {'title': 'My Site', 'name': 'Dart'}
+  ///   'h1= title\np= message',
+  ///   {'title': 'Hello', 'message': 'World'}
   /// );
   /// ```
   static Future<String> render(
@@ -378,7 +571,7 @@ class Pug {
   ///
   /// [file] is the File object pointing to the Pug template file.
   /// [data] is a Map containing template variables (optional).
-  /// [options] is a Map containing Pug options (optional).
+  /// [options] is a Map containing Pug rendering options (optional).
   ///
   /// Returns the rendered HTML as a String.
   ///

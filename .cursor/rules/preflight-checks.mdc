@@ -6,7 +6,8 @@ alwaysApply: false
 - Analyzer issues all resolved
 - Run `dart upgrade --major-versions`
 - Ensure all tests pass with the updated dependencies
-- Review `git diff` and ensure there are no obvious bugs or regressions
+- Review `git diff` and ensure there are no obvious bugs or regressions. Ensure that all changes relate to the task. Ensure that there is no orphaned code which can be removed.
+- If you have made changes at this point restart the preflight-checks.mdc checklist.
 - Update the [README.md](mdc:README.md) with any changes as necessary
 - Update the [CHANGELOG.md](mdc:CHANGELOG.md) and decide on the new version in accordance with semantic versioning with any changes as necessary
 - Update [pubspec.yaml](mdc:pubspec.yaml) with the new version
