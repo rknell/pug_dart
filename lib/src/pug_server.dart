@@ -232,7 +232,7 @@ class Pug {
     if (verbose) print('Checking if Pug.js is available...');
 
     // First check if Pug is already available
-    if (await _isPugAvailable()) {
+    if (await _isPugAvailable(verbose)) {
       if (verbose) print('✅ Pug.js is already installed and available.');
       return true;
     }
@@ -268,7 +268,7 @@ class Pug {
   /// }
   /// ```
   static Future<bool> isAvailable() async {
-    return await _isPugAvailable();
+    return await _isPugAvailable(false);
   }
 
   /// Starts the persistent Node.js server if not already running.
@@ -493,12 +493,34 @@ class Pug {
   }
 
   /// Checks if Pug.js is available by trying to run it
-  static Future<bool> _isPugAvailable() async {
+  static Future<bool> _isPugAvailable(bool verbose) async {
     try {
+      if (verbose) print('Testing Node.js and Pug.js availability...');
+
       final result = await Process.run('node', ['-e', 'require("pug")']);
+
+      if (verbose) {
+        if (result.exitCode == 0) {
+          print('✅ Pug.js is available.');
+        } else {
+          print('❌ Pug.js is not available. Exit code: ${result.exitCode}');
+          if (result.stderr.toString().trim().isNotEmpty) {
+            print('Error output: ${result.stderr}');
+          }
+          if (result.stdout.toString().trim().isNotEmpty) {
+            print('Standard output: ${result.stdout}');
+          }
+        }
+      }
+
       return result.exitCode == 0 &&
           !result.stderr.toString().contains('Cannot find module');
     } catch (e) {
+      if (verbose) {
+        print('❌ Failed to check Pug.js availability: $e');
+        print(
+            'This might indicate that Node.js is not installed or not in PATH.');
+      }
       return false;
     }
   }
@@ -508,6 +530,17 @@ class Pug {
     try {
       if (verbose) print('Installing Pug.js locally...');
       final result = await Process.run('npm', ['install', 'pug']);
+
+      if (verbose) {
+        if (result.stdout.toString().trim().isNotEmpty) {
+          print('npm stdout: ${result.stdout}');
+        }
+        if (result.stderr.toString().trim().isNotEmpty) {
+          print('npm stderr: ${result.stderr}');
+        }
+        print('npm exit code: ${result.exitCode}');
+      }
+
       return result.exitCode == 0;
     } catch (e) {
       if (verbose) print('Local install failed: $e');
@@ -520,6 +553,17 @@ class Pug {
     try {
       if (verbose) print('Installing Pug.js globally...');
       final result = await Process.run('npm', ['install', '-g', 'pug']);
+
+      if (verbose) {
+        if (result.stdout.toString().trim().isNotEmpty) {
+          print('npm stdout: ${result.stdout}');
+        }
+        if (result.stderr.toString().trim().isNotEmpty) {
+          print('npm stderr: ${result.stderr}');
+        }
+        print('npm exit code: ${result.exitCode}');
+      }
+
       return result.exitCode == 0;
     } catch (e) {
       if (verbose) print('Global install failed: $e');

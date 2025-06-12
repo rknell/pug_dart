@@ -51,9 +51,20 @@ class PugInstance {
     if (_isInitialized) return;
 
     if (!await Pug.isAvailable()) {
-      final success = await Pug.setup(verbose: false);
+      final success = await Pug.setup(verbose: true);
       if (!success) {
-        throw PugServerException('Failed to setup Pug.js automatically');
+        throw PugServerException('Failed to setup Pug.js automatically. '
+            'Please check the verbose output above for detailed error information. '
+            'Common issues include:\n'
+            '• Node.js not installed or not in PATH\n'
+            '• npm not available or network connectivity issues\n'
+            '• Insufficient permissions to install packages\n'
+            '• Firewall blocking npm access\n'
+            '\nTo resolve this, try:\n'
+            '1. Ensure Node.js and npm are installed: node --version && npm --version\n'
+            '2. Try manual installation: npm install pug\n'
+            '3. Check npm configuration: npm config list\n'
+            '4. Verify network access: npm ping');
       }
     }
 
