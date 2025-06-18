@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2024-12-29
+## [1.2.0]
 
 ### Added
 - **Comprehensive Auto-Cleanup System**: Automatic cleanup mechanisms for crash recovery and orphaned process management
@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added examples of proper resource management patterns
 - Removed manual cleanup script documentation (library handles everything automatically)
 
-## [1.1.0] - 2024-12-28
+## [1.1.0]
 
 ### Changed
 - **Embedded JavaScript Scripts**: Node.js scripts are now embedded directly in the Dart code as string constants
@@ -49,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic cleanup of temporary script files on server shutdown
 - Removed unused internal variables and improved code quality
 
-## [1.0.0] - 2024-12-XX
+## [1.0.0]
 
 ### Added
 - **Singleton Pattern**: Global `pug` instance for convenient access
@@ -97,7 +97,7 @@ final html = await pug.render('h1 Hello');
 await pug.dispose();
 ```
 
-## [0.0.1] - 2024-06-04
+## [0.0.1]
 
 ### Added
 - Initial release of pug_dart
