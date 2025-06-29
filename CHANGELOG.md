@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2025-01-26
+
+### Enhanced
+- **Enhanced Debugging**: Setup process now uses verbose output by default for better troubleshooting
+- **Improved Error Messages**: More detailed error messages with comprehensive troubleshooting guidance including:
+  - Common setup issues and their solutions
+  - Node.js and npm verification commands
+  - Network connectivity and permissions troubleshooting
+  - Manual installation instructions
+- **Verbose Logging**: Enhanced verbose output for availability checks and npm operations
+- **Process Output Capture**: Added detailed logging of npm command output for debugging setup issues
+
+### Technical Improvements
+- Enhanced `_isPugAvailable()` method with verbose logging capabilities
+- Improved npm installation output capture and display
+- Better error context for setup failures with actionable troubleshooting steps
+
 ## [1.2.0]
 
 ### Added
