@@ -129,16 +129,26 @@ class PugParser {
       return _parseFilter(span, trimmed, indent);
     }
     if (trimmed.startsWith('-')) {
-      throw UnsupportedFeatureException(
-        'Unbuffered JavaScript code is not supported; precompute values in Dart locals or helpers.',
-        span,
-      );
+      return _parseUnbufferedCode(span, trimmed);
     }
     final expansion = _findBlockExpansion(trimmed);
     if (expansion != -1) {
       return _parseExpandedTag(span, trimmed, expansion, indent);
     }
     return _parseTag(span, trimmed, indent);
+  }
+
+  PugNode _parseUnbufferedCode(PugSourceSpan span, String trimmed) {
+    final match =
+        RegExp(r'^-\s*(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*(.+)$')
+            .firstMatch(trimmed);
+    if (match != null) {
+      return LocalAssignmentNode(span, match.group(1)!, match.group(2)!.trim());
+    }
+    throw UnsupportedFeatureException(
+      'Unbuffered JavaScript code is not supported; only simple var/let/const assignments can be enabled for migration.',
+      span,
+    );
   }
 
   EachNode _parseEach(PugSourceSpan span, String trimmed, int indent) {

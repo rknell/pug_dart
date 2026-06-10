@@ -23,6 +23,9 @@ Most applications should migrate by:
 - Passing precomputed values through `locals`.
 - Moving template-only JavaScript helpers into explicit Dart helpers or
   filters.
+- Using `PugCompatibility.nodeMigration` during migration when templates only
+  need common safe JavaScript habits such as local aliases, `JSON.stringify`,
+  `Math.*`, numeric formatting, joins, includes, and simple template literals.
 - Pinning `pug_dart: ^1.2.1` if the application needs the old Node-backed
   runtime or full JavaScript expression compatibility.
 
@@ -43,7 +46,8 @@ This is an early native implementation. It already supports:
 
 It intentionally does not evaluate arbitrary JavaScript. Unsupported JS-only
 expressions fail with `UnsupportedFeatureException`; precompute those values in
-Dart or expose an explicit helper.
+Dart, expose an explicit helper, or use the migration preset for the documented
+safe subset.
 
 ## Compatibility Matrix
 
@@ -55,12 +59,12 @@ JavaScript evaluation with a safe Dart expression subset.
 | --- | --- | --- |
 | Tags | Supported | Includes nested tags, self-closing tags, void tags, implicit `div`, and block expansion such as `a: img`. |
 | Attributes | Supported | Includes multiline attributes, quoted names, boolean attributes, class arrays/maps, style maps, unescaped attributes, and `&attributes`. |
-| Attribute interpolation | Partially supported | Pug 3 removed legacy `#{}` attribute interpolation. Use expression attributes such as `href='/' + url`. ES template strings are out of scope. |
+| Attribute interpolation | Partially supported | Pug 3 removed legacy `#{}` attribute interpolation. Use expression attributes such as `href='/' + url`. Simple ES template strings are supported only when `simpleTemplateLiterals` or `PugCompatibility.nodeMigration` is enabled. |
 | Text | Supported | Includes inline text, piped text, dot text blocks, and text interpolation. |
 | Comments | Supported | Includes buffered and unbuffered comments, including indented comment blocks. |
 | Doctypes | Supported | Includes Pug's documented doctype shortcuts. |
 | Buffered code | Supported subset | `=` and `!=` work with the safe expression evaluator. |
-| Unbuffered code | Out of scope | JavaScript statements such as `- var`, `- for`, and mutation are intentionally rejected. |
+| Unbuffered code | Supported opt-in subset | `- var/let/const name = expression` can be enabled with `allowLocalAssignments` or `PugCompatibility.nodeMigration`. Other JavaScript statements such as loops, functions, imports, and mutation are intentionally rejected. |
 | Conditionals | Supported | Includes `if`, `else if`, `else`, and `unless`. |
 | Case | Supported | Includes `case`, `when`, and `default` for simple branch values. JavaScript fall-through semantics are not supported. |
 | Iteration | Supported | Includes array/list iteration, map/object iteration, index/key variables, and `else` branches. |
@@ -85,8 +89,9 @@ Out of scope by design:
 - JavaScript statements and mutation
 - Implicit globals such as `JSON`, `Math`, `Date`, and `moment`
 - JavaScript methods such as `.toUpperCase()` except for the documented
-  `toString()` case covered by the compatibility fixtures
-- ES template strings
+  `toString()` case covered by the compatibility fixtures and the documented
+  `nodeMigration` methods
+- General ES template string semantics beyond simple `${...}` interpolation
 - JSTransformer filters such as `:markdown-it`, `:babel`, `:scss`, and
   filtered includes
 - Raw text includes for non-Pug files
@@ -158,6 +163,36 @@ final template = pug.compile('p= money(cents)', pug.PugOptions(
 
 final html = template.render({'cents': 1299});
 ```
+
+### Use the Node migration preset
+
+`PugCompatibility.nodeMigration` keeps rendering native and deterministic, but
+enables a small compatibility layer for common Pug.js templates:
+
+```dart
+final html = await pug.renderFile(
+  'views/product.pug',
+  {'product': product},
+  const pug.PugOptions(
+    compatibility: pug.PugCompatibility.nodeMigration,
+  ),
+);
+```
+
+The preset enables:
+
+- restricted unbuffered assignments such as `- const price = product.price || 0`
+- `JSON.stringify(value)`, `Number(value)`, and `String(value)`
+- `Math.round/floor/ceil/min/max`
+- numeric `.toFixed(n)`, `.length`, simple `.join(', ')`, and `.includes(value)`
+- simple backtick interpolation such as:
+
+```pug
+a(href=`/products/${product.slug}`)
+```
+
+You can enable the assignment and template-literal pieces independently with
+`allowLocalAssignments` and `simpleTemplateLiterals`.
 
 ### Register custom filters
 

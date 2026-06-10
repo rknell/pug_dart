@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:path/path.dart' as p;
 
@@ -6,6 +8,8 @@ import 'diagnostics.dart';
 
 typedef PugHelper = Object? Function(List<Object?> args);
 typedef PugFilter = String Function(String text, Map<String, Object?> attrs);
+
+enum PugCompatibility { strict, nodeMigration }
 
 abstract interface class PugTemplateLoader {
   String load(String path, {String? from});
@@ -53,6 +57,9 @@ class PugOptions {
     this.basedir,
     this.pretty = false,
     this.doctype,
+    this.compatibility = PugCompatibility.strict,
+    this.allowLocalAssignments = false,
+    this.simpleTemplateLiterals = false,
     this.helpers = const {},
     this.filters = const {},
     this.loader,
@@ -64,6 +71,9 @@ class PugOptions {
   final String? basedir;
   final bool pretty;
   final String? doctype;
+  final PugCompatibility compatibility;
+  final bool allowLocalAssignments;
+  final bool simpleTemplateLiterals;
   final Map<String, PugHelper> helpers;
   final Map<String, PugFilter> filters;
   final PugTemplateLoader? loader;
@@ -73,11 +83,28 @@ class PugOptions {
   PugTemplateLoader get effectiveLoader =>
       loader ?? FileSystemPugTemplateLoader(basedir: basedir);
 
+  bool get localAssignmentsEnabled =>
+      allowLocalAssignments || compatibility == PugCompatibility.nodeMigration;
+
+  bool get simpleTemplateLiteralsEnabled =>
+      simpleTemplateLiterals || compatibility == PugCompatibility.nodeMigration;
+
+  bool get nodeMigrationEnabled =>
+      compatibility == PugCompatibility.nodeMigration;
+
+  Map<String, PugHelper> get effectiveHelpers {
+    if (!nodeMigrationEnabled) return helpers;
+    return {...nodeMigrationHelpers, ...helpers};
+  }
+
   PugOptions copyWith({
     String? filename,
     String? basedir,
     bool? pretty,
     String? doctype,
+    PugCompatibility? compatibility,
+    bool? allowLocalAssignments,
+    bool? simpleTemplateLiterals,
     Map<String, PugHelper>? helpers,
     Map<String, PugFilter>? filters,
     PugTemplateLoader? loader,
@@ -89,6 +116,11 @@ class PugOptions {
       basedir: basedir ?? this.basedir,
       pretty: pretty ?? this.pretty,
       doctype: doctype ?? this.doctype,
+      compatibility: compatibility ?? this.compatibility,
+      allowLocalAssignments:
+          allowLocalAssignments ?? this.allowLocalAssignments,
+      simpleTemplateLiterals:
+          simpleTemplateLiterals ?? this.simpleTemplateLiterals,
       helpers: helpers ?? this.helpers,
       filters: filters ?? this.filters,
       loader: loader ?? this.loader,
@@ -96,4 +128,32 @@ class PugOptions {
       maxWhileIterations: maxWhileIterations ?? this.maxWhileIterations,
     );
   }
+}
+
+final Map<String, PugHelper> nodeMigrationHelpers = {
+  'JSON': (_) => {
+        'stringify': (List<Object?> args) => jsonEncode(args.firstOrNull),
+      },
+  'Number': (args) => _number(args.firstOrNull),
+  'String': (args) => args.firstOrNull?.toString() ?? '',
+  'Math': (_) => {
+        'round': (List<Object?> args) => _number(args.firstOrNull).round(),
+        'floor': (List<Object?> args) => _number(args.firstOrNull).floor(),
+        'ceil': (List<Object?> args) => _number(args.firstOrNull).ceil(),
+        'min': (List<Object?> args) =>
+            args.map(_number).fold<num>(double.infinity, math.min),
+        'max': (List<Object?> args) =>
+            args.map(_number).fold<num>(double.negativeInfinity, math.max),
+      },
+};
+
+num _number(Object? value) {
+  if (value is num) return value;
+  if (value is String) return num.tryParse(value) ?? 0;
+  if (value == true) return 1;
+  return 0;
+}
+
+extension<T> on List<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }

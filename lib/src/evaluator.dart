@@ -17,24 +17,46 @@ class EvalScope {
 }
 
 class SafeExpressionEvaluator {
-  SafeExpressionEvaluator(this.helpers);
+  SafeExpressionEvaluator({
+    required this.helpers,
+    required this.options,
+  });
 
   final Map<String, PugHelper> helpers;
+  final PugOptions options;
 
   Object? evaluate(String source, EvalScope scope, [PugSourceSpan? span]) {
     _rejectUnsupported(source, span);
+    if (options.simpleTemplateLiteralsEnabled &&
+        source.startsWith('`') &&
+        source.endsWith('`')) {
+      return _evaluateTemplateLiteral(source, scope, span);
+    }
     final parser =
         _ExpressionParser(_Scanner(source, span).scan(), helpers, scope, span);
     return parser.parse();
   }
 
   void _rejectUnsupported(String source, PugSourceSpan? span) {
+    if (source.contains('`') && !options.simpleTemplateLiteralsEnabled) {
+      throw UnsupportedFeatureException(
+        'Template literals are unsupported. Use string concatenation or enable simpleTemplateLiterals.',
+        span,
+      );
+    }
+    if (RegExp(r'\b(JSON|Math)\s*\.').hasMatch(source) &&
+        !options.nodeMigrationEnabled) {
+      throw UnsupportedFeatureException(
+        '$source is not enabled. Use PugCompatibility.nodeMigration or register an explicit Dart helper.',
+        span,
+      );
+    }
     final unsupported = [
       RegExp(r'\bnew\s+'),
       RegExp(r'=>'),
       RegExp(r'\bfunction\b'),
       RegExp(r'\b(var|let|const)\b'),
-      RegExp(r'\b(JSON|Math|Date|moment)\s*\.'),
+      RegExp(r'\b(Date|moment)\s*\.'),
     ];
     for (final pattern in unsupported) {
       if (pattern.hasMatch(source)) {
@@ -44,6 +66,66 @@ class SafeExpressionEvaluator {
         );
       }
     }
+  }
+
+  String _evaluateTemplateLiteral(
+      String source, EvalScope scope, PugSourceSpan? span) {
+    final body = source.substring(1, source.length - 1);
+    final buffer = StringBuffer();
+    for (var i = 0; i < body.length; i++) {
+      final char = body[i];
+      if (char == r'\') {
+        if (i + 1 >= body.length) {
+          buffer.write(char);
+        } else {
+          final escaped = body[++i];
+          buffer.write(switch (escaped) {
+            '`' => '`',
+            r'\' => r'\',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            _ => escaped,
+          });
+        }
+      } else if (char == r'$' && i + 1 < body.length && body[i + 1] == '{') {
+        final end = _findTemplateExpressionEnd(body, i + 2, span);
+        final expression = body.substring(i + 2, end);
+        buffer.write(evaluate(expression, scope, span)?.toString() ?? '');
+        i = end;
+      } else {
+        buffer.write(char);
+      }
+    }
+    return buffer.toString();
+  }
+
+  int _findTemplateExpressionEnd(
+      String source, int start, PugSourceSpan? span) {
+    var depth = 0;
+    String? quote;
+    for (var i = start; i < source.length; i++) {
+      final char = source[i];
+      if (quote != null) {
+        if (char == r'\') {
+          i++;
+        } else if (char == quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char == '"' || char == "'") {
+        quote = char;
+      } else if ('([{'.contains(char)) {
+        depth++;
+      } else if (')]}'.contains(char)) {
+        if (char == '}' && depth == 0) return i;
+        depth--;
+      } else if (char == '}' && depth == 0) {
+        return i;
+      }
+    }
+    throw PugRenderException('Unterminated template literal expression', span);
   }
 }
 
@@ -175,6 +257,27 @@ class _ExpressionParser {
         if (_check('(') && name == 'toString') {
           final target = value;
           value = (List<Object?> args) => target?.toString();
+        } else if (_check('(') && name == 'toFixed') {
+          final target = value;
+          value = (List<Object?> args) {
+            final digits = args.isEmpty ? 0 : _num(args.first).toInt();
+            return _num(target).toStringAsFixed(digits);
+          };
+        } else if (_check('(') && name == 'join') {
+          final target = value;
+          value = (List<Object?> args) {
+            final separator = args.isEmpty ? ',' : '${args.first ?? ''}';
+            if (target is Iterable) return target.join(separator);
+            return '';
+          };
+        } else if (_check('(') && name == 'includes') {
+          final target = value;
+          value = (List<Object?> args) {
+            final needle = args.firstOrNull;
+            if (target is String) return target.contains('${needle ?? ''}');
+            if (target is Iterable) return target.contains(needle);
+            return false;
+          };
         } else {
           value = _lookupProperty(value, name);
         }
@@ -253,6 +356,7 @@ class _ExpressionParser {
 
   Object? _lookupProperty(Object? target, Object? key) {
     if (target == null) return null;
+    if (target is PugHelper) return _lookupProperty(target(const []), key);
     if (key == 'length') {
       if (target is String) return target.length;
       if (target is Iterable) return target.length;
@@ -311,6 +415,10 @@ class _ExpressionParser {
     }
     return token.lexeme;
   }
+}
+
+extension<T> on List<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }
 
 class _Scanner {

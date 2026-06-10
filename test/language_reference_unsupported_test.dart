@@ -7,6 +7,11 @@ void main() {
       expect(
         () => pug.compile(
             '- var authenticated = true\nbody(class=authenticated ? "authed" : "anon")'),
+        returnsNormally,
+      );
+      expect(
+        () => pug.render(
+            '- var authenticated = true\nbody(class=authenticated ? "authed" : "anon")'),
         throwsA(isA<pug.UnsupportedFeatureException>()),
       );
       expect(

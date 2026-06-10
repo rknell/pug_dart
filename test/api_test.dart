@@ -29,6 +29,46 @@ void main() {
     );
   });
 
+  test('node migration compatibility supports common safe JavaScript habits',
+      () async {
+    final html = await pug.render(
+      '''
+- const price = product.price || 0
+a(href=`/products/\${product.slug}` data-json=JSON.stringify(product) data-tags=product.tags.join(', '))
+  = Math.round(price / 100)
+span= price.toFixed(2)
+p= product.tags.includes('spiced') ? String(product.tags.length) : Number('0')
+''',
+      {
+        'product': {
+          'slug': 'spiced-rum',
+          'price': 6499,
+          'tags': ['spiced', 'rum'],
+        },
+      },
+      const pug.PugOptions(
+        compatibility: pug.PugCompatibility.nodeMigration,
+      ),
+    );
+    expect(
+      html,
+      '<a href="/products/spiced-rum" data-json="{&quot;slug&quot;:&quot;spiced-rum&quot;,&quot;price&quot;:6499,&quot;tags&quot;:[&quot;spiced&quot;,&quot;rum&quot;]}" data-tags="spiced, rum">65</a><span>6499.00</span><p>2</p>',
+    );
+  });
+
+  test('local assignments are opt-in with actionable diagnostics', () async {
+    await expectLater(
+      () => pug.render('- var sf = storefront\np= sf', {'storefront': 'main'}),
+      throwsA(
+        isA<pug.UnsupportedFeatureException>().having(
+          (error) => error.message,
+          'message',
+          contains('Enable allowLocalAssignments'),
+        ),
+      ),
+    );
+  });
+
   test('custom filters are explicit extension points', () async {
     final html = await pug.render(
       ':upper\n  hello',

@@ -63,6 +63,12 @@ class ExpressionNode extends PugNode {
   final bool unescaped;
 }
 
+class LocalAssignmentNode extends PugNode {
+  const LocalAssignmentNode(super.span, this.name, this.expression);
+  final String name;
+  final String expression;
+}
+
 class CommentNode extends PugNode {
   const CommentNode(super.span, this.text,
       {this.buffered = true, this.blockText});

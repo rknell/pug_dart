@@ -6,7 +6,10 @@ import 'parser.dart';
 
 class PugRenderer {
   PugRenderer(this.options)
-      : evaluator = SafeExpressionEvaluator(options.helpers);
+      : evaluator = SafeExpressionEvaluator(
+          helpers: options.effectiveHelpers,
+          options: options,
+        );
 
   final PugOptions options;
   final SafeExpressionEvaluator evaluator;
@@ -81,6 +84,7 @@ class PugRenderer {
       TextNode() => node.unescaped
           ? node.text
           : _interpolate(node.text, scope, node.span, escape: true),
+      LocalAssignmentNode() => _renderLocalAssignment(node, scope),
       ExpressionNode() => _stringify(
           evaluator.evaluate(node.expression, scope, node.span),
           escape: !node.unescaped,
@@ -104,6 +108,18 @@ class PugRenderer {
       _ => throw PugRenderException(
           'Unsupported AST node ${node.runtimeType}', node.span),
     };
+  }
+
+  String _renderLocalAssignment(LocalAssignmentNode node, EvalScope scope) {
+    if (!options.localAssignmentsEnabled) {
+      throw UnsupportedFeatureException(
+        'Unbuffered assignment is unsupported: - var ${node.name} = ${node.expression}. Enable allowLocalAssignments or pass ${node.name} as a local.',
+        node.span,
+      );
+    }
+    scope.values[node.name] =
+        evaluator.evaluate(node.expression, scope, node.span);
+    return '';
   }
 
   String _renderTag(
