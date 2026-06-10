@@ -1,3 +1,18 @@
+## 2.0.1
+
+- Added `PugCompatibility.nodeMigration` for common safe Pug.js migration
+  patterns without enabling arbitrary JavaScript execution.
+- Added opt-in restricted unbuffered assignments for
+  `- var/let/const name = expression` through `allowLocalAssignments` or the
+  node migration preset.
+- Added opt-in simple template literal interpolation through
+  `simpleTemplateLiterals` or the node migration preset.
+- Added node migration helpers and methods for `JSON.stringify`, `Number`,
+  `String`, `Math.round/floor/ceil/min/max`, numeric `.toFixed(n)`, `.length`,
+  simple `.join(...)`, and `.includes(...)`.
+- Improved migration diagnostics for unsupported template literals,
+  unbuffered assignments, and disabled `JSON`/`Math` expressions.
+
 ## 2.0.0
 
 - Rebuilt `pug_dart` as a native Dart Pug renderer.

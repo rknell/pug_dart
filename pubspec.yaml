@@ -1,6 +1,6 @@
 name: pug_dart
 description: Native Dart Pug template renderer with a safe expression engine.
-version: 2.0.0
+version: 2.0.1
 repository: https://github.com/rknell/pug_dart
 
 environment:
