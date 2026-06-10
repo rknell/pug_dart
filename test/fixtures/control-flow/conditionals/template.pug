@@ -1,0 +1,9 @@
+section
+  if active
+    p Active #{name}
+  else
+    p Inactive
+  each item, index in items
+    p(data-index=index)= item
+  else
+    p Empty

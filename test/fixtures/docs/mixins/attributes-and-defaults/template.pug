@@ -1,0 +1,9 @@
+mixin link(href, name)
+  a(href=href)&attributes(attributes)= name
++link('/foo', 'foo')(class="btn")
+mixin article(title='Default Title')
+  .article
+    .article-wrapper
+      h1= title
++article()
++article('Hello world')

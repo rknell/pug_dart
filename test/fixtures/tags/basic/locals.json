@@ -1,0 +1,7 @@
+{
+  "title": "Welcome",
+  "name": "<Captain>",
+  "image": "/assets/bottle.png",
+  "extraClasses": ["launch", "featured"],
+  "isChecked": true
+}

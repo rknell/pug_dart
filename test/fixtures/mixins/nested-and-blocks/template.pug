@@ -1,0 +1,11 @@
+mixin shell(title)
+  section.shell
+    h2= title
+    block
+
+mixin badge(text, tone = "neutral")
+  span.badge(class=tone)= text
+
++shell("Launch")
+  +badge("New", "green")
+  p Copy

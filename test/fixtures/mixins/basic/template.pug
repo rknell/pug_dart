@@ -1,0 +1,8 @@
+mixin card(title, href = "/")
+  article.card&attributes(attributes)
+    h2= title
+    a(href=href)
+      block
+
++card("Bottle", "/products")(class="featured")
+  span Buy now

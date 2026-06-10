@@ -1,0 +1,13 @@
+{
+  "isDisabled": true,
+  "count": 3,
+  "extraClass": "wide",
+  "extraAttrs": {
+    "aria-label": "Save <now>",
+    "class": {
+      "is-active": true,
+      "is-hidden": false
+    }
+  },
+  "label": "Save"
+}

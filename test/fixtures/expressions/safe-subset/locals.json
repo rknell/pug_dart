@@ -1,0 +1,8 @@
+{
+  "priceCents": 1299,
+  "active": true,
+  "items": ["first", "second"],
+  "config": {
+    "label": "Featured"
+  }
+}

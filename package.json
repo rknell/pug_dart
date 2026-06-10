@@ -1,5 +1,6 @@
 {
-  "dependencies": {
-    "pug": "^3.0.3"
+  "private": true,
+  "devDependencies": {
+    "pug": "3.0.4"
   }
 }

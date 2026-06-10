@@ -1,394 +1,270 @@
-# Pug Dart
+# pug_dart
 
-A high-performance Dart wrapper for the [Pug.js](https://pugjs.org/) templating engine for server-side applications.
+Native Dart Pug renderer with a safe expression engine.
 
-## Features
+Version 2 is a Node-free native Dart rewrite of `pug_dart`: templates stay as
+Pug, but rendering happens in Dart. Compatibility is tracked with committed
+golden fixtures generated from pinned upstream `pug@3.0.4`.
 
-- ✅ **High Performance**: Uses a persistent Node.js server with Unix domain sockets for fast inter-process communication
-- ✅ **Server-Side Rendering**: Use Pug templates in Dart backend applications
-- ✅ **Full Pug Support**: Complete access to Pug.js functionality
-- ✅ **Type Safe**: Full type safety with proper Dart type annotations
-- ✅ **Template Compilation**: Compile templates once, render multiple times
-- ✅ **File Support**: Render templates directly from files using `dart:io` File objects
-- ✅ **Options Support**: Full support for Pug compilation and rendering options
-- ✅ **Async API**: Non-blocking operations with Future-based API
-- ✅ **Auto Setup**: Automatic Pug.js installation and initialization via npm
-- ✅ **Singleton Pattern**: Global `pug` instance with automatic setup on first use
-- ✅ **Resource Management**: Automatic server lifecycle management with graceful shutdown
+If you need the original Node-backed behavior, pin `pug_dart` to the latest
+compatible `1.x` release.
 
-## Architecture
+## Migrating From 1.x
 
-This library uses a persistent Node.js server that communicates via Unix domain sockets (no port conflicts). The server starts automatically on first use and stays running for subsequent requests, providing much better performance than spawning a new process for each render operation.
+`pug_dart` 2.0.0 is a breaking rewrite. The package no longer starts a
+persistent Node.js process, installs npm dependencies at runtime, exposes the
+old singleton lifecycle API, or evaluates arbitrary JavaScript inside
+templates.
 
-## Requirements
+Most applications should migrate by:
 
-- Dart SDK 3.0.0 or higher
-- Node.js and npm installed
-- **Unix-like system**: Currently supports Linux and macOS (Windows support coming soon)
-- **Server/Command-line environment**: This library uses `dart:io` Process and Unix domain sockets
+- Replacing singleton calls with the top-level `render`, `renderFile`,
+  `compile`, or `compileFile` APIs.
+- Passing precomputed values through `locals`.
+- Moving template-only JavaScript helpers into explicit Dart helpers or
+  filters.
+- Pinning `pug_dart: ^1.2.1` if the application needs the old Node-backed
+  runtime or full JavaScript expression compatibility.
 
-## Installation
+## Status
 
-1. Add this package to your `pubspec.yaml`:
+This is an early native implementation. It already supports:
 
-```yaml
-dependencies:
-  pug_dart: ^1.0.0
-```
+- Pug-like API: `render`, `renderFile`, `compile`, `compileFile`
+- Tags, shorthand ids/classes, attributes, boolean attributes, `&attributes`
+- Escaped and unescaped interpolation
+- `if`, `else if`, `else`, `unless`, `each`, guarded `while`
+- `include`, `extends`, `block`, `append`, `prepend`
+- Mixins with arguments, defaults, attributes, and block bodies
+- Dot text blocks for `script.`/`style.` style content
+- `pretty` output formatting for supported HTML trees
+- Source-spanned parse/render diagnostics and wrapped file-loading diagnostics
+- Custom filters and explicit Dart helpers
 
-2. **⚠️ IMPORTANT: Node.js and npm must be installed on your system**
+It intentionally does not evaluate arbitrary JavaScript. Unsupported JS-only
+expressions fail with `UnsupportedFeatureException`; precompute those values in
+Dart or expose an explicit helper.
 
-This library requires Node.js and npm to be available in your system PATH. Install them from [nodejs.org](https://nodejs.org/) before using this package.
+## Compatibility Matrix
 
-3. The library automatically installs and sets up Pug.js on first use - no manual setup required!
+Compatibility is measured against upstream `pug@3.0.4` with committed golden
+fixtures. The project targets Pug syntax and rendering behavior, while replacing
+JavaScript evaluation with a safe Dart expression subset.
 
-## Quick Start
+| Pug language feature | Status | Notes |
+| --- | --- | --- |
+| Tags | Supported | Includes nested tags, self-closing tags, void tags, implicit `div`, and block expansion such as `a: img`. |
+| Attributes | Supported | Includes multiline attributes, quoted names, boolean attributes, class arrays/maps, style maps, unescaped attributes, and `&attributes`. |
+| Attribute interpolation | Partially supported | Pug 3 removed legacy `#{}` attribute interpolation. Use expression attributes such as `href='/' + url`. ES template strings are out of scope. |
+| Text | Supported | Includes inline text, piped text, dot text blocks, and text interpolation. |
+| Comments | Supported | Includes buffered and unbuffered comments, including indented comment blocks. |
+| Doctypes | Supported | Includes Pug's documented doctype shortcuts. |
+| Buffered code | Supported subset | `=` and `!=` work with the safe expression evaluator. |
+| Unbuffered code | Out of scope | JavaScript statements such as `- var`, `- for`, and mutation are intentionally rejected. |
+| Conditionals | Supported | Includes `if`, `else if`, `else`, and `unless`. |
+| Case | Supported | Includes `case`, `when`, and `default` for simple branch values. JavaScript fall-through semantics are not supported. |
+| Iteration | Supported | Includes array/list iteration, map/object iteration, index/key variables, and `else` branches. |
+| Includes | Supported | Pug files resolve relative to the current file; missing files throw `PugIOException`. Raw text includes and filtered includes are not implemented. |
+| Inheritance | Supported | Includes `extends`, `block`, `append`, and `prepend`. |
+| Mixins | Supported subset | Includes arguments, defaults, call attributes, nested calls, and block bodies. Rest args and advanced JavaScript argument expressions are out of scope. |
+| Filters | Dart-native only | Custom Dart filters are supported through `PugOptions.filters`. JSTransformer filters are out of scope. |
+| Interpolation | Supported subset | Escaped `#{...}` and unescaped `!{...}` work with safe expressions. |
+| Pretty output | Supported | `PugOptions(pretty: true)` formats supported HTML output and is covered by upstream golden tests. |
+| Caching | Basic | Parsed templates are cached by resolved path within a renderer instance. Dependency-aware invalidation is not implemented. |
+| Browser compilation | Out of scope | This package is a Dart VM/server-side renderer. |
 
-```dart
-import 'package:pug_dart/pug_dart.dart';
+## Safe Expressions
 
-main() async {
-  var html = await pug.render('h1 Hello World');
-  print('Rendered HTML: $html');
-  await pug.dispose();
-}
-```
+The native evaluator supports literals, lists, maps, property and index lookup,
+arithmetic, comparison, ternary expressions, JavaScript-like truthiness, `&&` and
+`||` operand value semantics, and explicit Dart helpers.
 
-That's it! Just 3 lines and you're rendering Pug templates. Setup happens automatically.
+Out of scope by design:
+
+- Arbitrary JavaScript evaluation
+- JavaScript statements and mutation
+- Implicit globals such as `JSON`, `Math`, `Date`, and `moment`
+- JavaScript methods such as `.toUpperCase()` except for the documented
+  `toString()` case covered by the compatibility fixtures
+- ES template strings
+- JSTransformer filters such as `:markdown-it`, `:babel`, `:scss`, and
+  filtered includes
+- Raw text includes for non-Pug files
+- Full Pug.js compile/runtime API compatibility beyond the Pug-like facade
 
 ## Usage
 
-### Basic Template Rendering
+For Pug syntax, use the official language reference:
+<https://pugjs.org/language/attributes.html>. This README focuses on how to
+render Pug from Dart.
+
+### Render an inline template
 
 ```dart
-import 'package:pug_dart/pug_dart.dart';
+import 'package:pug_dart/pug_dart.dart' as pug;
 
-void main() async {
-  // Simple template rendering - automatic setup on first call
-  final html = await pug.render(
-    'h1= title\np Welcome to #{name}!',
-    {'title': 'My Site', 'name': 'Dart'}
-  );
-  print(html);
-  // Output: <h1>My Site</h1><p>Welcome to Dart!</p>
-  
-  // Subsequent calls are much faster (same server, just socket communication)
-  final html2 = await pug.render('p This is fast!');
-  
-  // Clean up when done
-  await pug.dispose();
-}
+final html = await pug.render('p Hello #{name}', {'name': 'Dart'});
 ```
 
-### Template Compilation (for better performance)
+### Render a file
 
 ```dart
-import 'package:pug_dart/pug_dart.dart';
+import 'package:pug_dart/pug_dart.dart' as pug;
 
-void main() async {
-  // Compile once, render multiple times
-  final users = [
-    {'name': 'Alice', 'email': 'alice@example.com', 'role': 'Admin'},
-    {'name': 'Bob', 'email': 'bob@example.com', 'role': 'User'},
-  ];
-  
-  for (final user in users) {
-    final html = await pug.compile(
-      '.user-card\n  h2= user.name\n  p Email: #{user.email}\n  p Role: #{user.role}',
-      {'user': user}
-    );
-    print(html);
-  }
-  
-  await pug.dispose();
-}
+final html = await pug.renderFile('views/product.pug', {
+  'product': {
+    'name': 'Spiced Rum',
+    'price': 6499,
+    'inStock': true,
+  },
+});
 ```
 
-### File-based Templates
+Relative `include` and `extends` paths are resolved from the current template
+file. Use `basedir` when your templates use project-root-relative paths.
 
 ```dart
-import 'package:pug_dart/pug_dart.dart';
-import 'dart:io';
+final html = await pug.renderFile(
+  'views/pages/home.pug',
+  {'title': 'Home'},
+  pug.PugOptions(basedir: 'views'),
+);
+```
 
-void main() async {
-  // Render template from file using File objects
-  final templateFile = File('templates/layout.pug');
-  final html = await pug.renderFile(
-    templateFile,
-    {
-      'title': 'My Website',
-      'content': 'This is the main content',
-      'user': {'name': 'John', 'email': 'john@example.com'}
+### Reuse a compiled template
+
+Use `compile` or `compileFile` when rendering the same template repeatedly with
+different locals.
+
+```dart
+final template = pug.compileFile('views/product-card.pug');
+
+final first = template.render({'name': 'Spiced Rum'});
+final second = template.render({'name': 'White Rum'});
+```
+
+### Pass explicit Dart helpers
+
+JavaScript globals and arbitrary JavaScript calls are intentionally unavailable.
+Precompute values in Dart, or expose the small helper surface your templates
+need.
+
+```dart
+final template = pug.compile('p= money(cents)', pug.PugOptions(
+  helpers: {
+    'money': (args) => '\$${((args.first as num) / 100).toStringAsFixed(2)}',
+  },
+));
+
+final html = template.render({'cents': 1299});
+```
+
+### Register custom filters
+
+Filters are Dart functions. This keeps the runtime Node-free and avoids pulling
+in JSTransformer packages.
+
+```dart
+final html = await pug.render(
+  '''
+:upper
+  rendered by a dart filter
+''',
+  const {},
+  pug.PugOptions(
+    filters: {
+      'upper': (text, attrs) => text.toUpperCase(),
     },
-    {'pretty': true, 'cache': true}
-  );
-  print(html);
-  
-  await pug.dispose();
-}
+  ),
+);
 ```
 
-### Advanced Options
+### Pretty output
+
+By default, output follows Pug's compact HTML style. Enable `pretty` when you
+want formatted HTML.
 
 ```dart
-import 'package:pug_dart/pug_dart.dart';
+final html = await pug.renderFile(
+  'views/email.pug',
+  {'name': 'Dart'},
+  const pug.PugOptions(pretty: true),
+);
+```
 
-void main() async {
-  // Using compilation options
-  final html = await pug.render(
-    'doctype html\nhtml\n  body\n    h1 Hello #{name}',
-    {'name': 'World'},
-    {
-      'pretty': true,          // Pretty print output
-      'cache': true,           // Cache compiled templates
-      'compileDebug': false,   // Disable debug info
-      'filename': 'template.pug' // For error reporting
+### Custom loading
+
+Provide a `PugTemplateLoader` when templates come from memory, a database, an
+asset bundle, or another virtual filesystem.
+
+```dart
+class MapTemplateLoader implements pug.PugTemplateLoader {
+  MapTemplateLoader(this.templates);
+
+  final Map<String, String> templates;
+
+  @override
+  String resolve(String path, {String? from}) => path;
+
+  @override
+  String load(String path, {String? from}) {
+    final source = templates[path];
+    if (source == null) {
+      throw pug.PugIOException('Missing template "$path"');
     }
-  );
-  print(html);
-  
-  await pug.dispose();
-}
-```
-
-### Resource Management
-
-```dart
-import 'package:pug_dart/pug_dart.dart';
-
-void main() async {
-  // Server starts automatically on first render
-  await pug.render('h1 Hello World');
-  
-  // Do lots of rendering - all use the same persistent server
-  for (int i = 0; i < 1000; i++) {
-    await pug.render('p Item #{i}', {'i': i});
-  }
-  
-  // Gracefully shut down the server when done
-  await pug.dispose();
-  
-  // Server will restart automatically if you render again
-  await pug.render('p Server restarted');
-  await pug.dispose();
-}
-```
-
-### Auto-Cleanup and Crash Recovery
-
-PugDart includes comprehensive auto-cleanup mechanisms to handle crashes, improper disposal, and orphaned processes:
-
-#### Built-in Safety Features
-
-- **Signal Handlers**: Automatically registers SIGINT and SIGTERM handlers for graceful shutdown
-- **Process Monitoring**: Health checks monitor server responsiveness and restart failed servers
-- **PID File Management**: Tracks server processes with PID files for cleanup after crashes
-- **Orphan Detection**: Automatically detects and cleans up orphaned resources on startup
-- **Resource Tracking**: Tracks all temporary files and sockets for comprehensive cleanup
-
-#### Automatic Error Recovery
-
-PugDart automatically handles various failure scenarios without any manual intervention:
-
-```dart
-import 'package:pug_dart/pug_dart.dart';
-
-void main() async {
-  // If the server crashes during rendering, it will automatically restart
-  for (int i = 0; i < 100; i++) {
-    try {
-      await pug.render('p Rendering #{i}', {'i': i});
-    } catch (e) {
-      print('Render failed, but will retry: $e');
-      // The next render call will automatically restart the server
-    }
-  }
-  
-  await pug.dispose();
-}
-```
-
-#### Proper Resource Management
-
-Always use proper resource management to ensure cleanup:
-
-```dart
-import 'package:pug_dart/pug_dart.dart';
-
-void main() async {
-  try {
-    // Your application code
-    await pug.render('h1 Hello World');
-  } catch (e) {
-    // Handle errors
-    print('Error: $e');
-  } finally {
-    // Ensure cleanup happens even if something goes wrong
-    await pug.dispose();
+    return source;
   }
 }
+
+final html = await pug.renderFile(
+  'page.pug',
+  {'title': 'Virtual templates'},
+  pug.PugOptions(
+    loader: MapTemplateLoader({
+      'page.pug': 'include partial.pug\np= title',
+      'partial.pug': 'h1 Loaded from memory',
+    }),
+  ),
+);
 ```
 
-## API Reference
+## Golden Fixtures
 
-The main interface is the `pug` singleton instance that automatically handles setup:
+Fixture cases live under `test/fixtures/<feature>/<case>/`:
 
-```dart
-// Automatic setup on first use
-final html = await pug.render(template, data, options);
-final html2 = await pug.renderFile(file, data, options);
-final html3 = await pug.compile(template, data, options);
-final html4 = await pug.compileFile(file, data, options);
+- `template.pug`
+- `locals.json`
+- `options.json`
+- `expected.html`
 
-// Clean up
-await pug.dispose();
+Regenerate expected HTML from pinned upstream Pug:
+
+```sh
+dart run tool/generate_goldens.dart
 ```
 
-### Methods
+The generator installs `pug@3.0.4` through npm when needed. Normal Dart tests do
+not require Node.
 
-#### `render(template, [data], [options])` → `Future<String>`
+The `test/fixtures/docs/` tree mirrors examples from Pug's language reference.
+Examples that require arbitrary JavaScript evaluation or JSTransformer packages
+are covered by negative tests in `test/language_reference_unsupported_test.dart`
+because this package intentionally requires precomputed Dart locals or explicit
+Dart helpers/filters instead.
 
-Renders a Pug template string with optional data and options. Automatically sets up Pug.js on first call.
+## CLI
 
-- `template` (String): The Pug template source code
-- `data` (Map<String, dynamic>?, optional): Template variables
-- `options` (Map<String, dynamic>?, optional): Pug compilation options
-
-#### `renderFile(file, [data], [options])` → `Future<String>`
-
-Renders a Pug template file with optional data and options. Automatically sets up Pug.js on first call.
-
-- `file` (File): The File object pointing to the Pug template
-- `data` (Map<String, dynamic>?, optional): Template variables  
-- `options` (Map<String, dynamic>?, optional): Pug compilation options
-
-#### `compile(template, [data], [options])` → `Future<String>`
-
-Compiles and renders a Pug template string in one step. Automatically sets up Pug.js on first call.
-
-- `template` (String): The Pug template source code
-- `data` (Map<String, dynamic>?, optional): Template variables
-- `options` (Map<String, dynamic>?, optional): Pug compilation options
-
-#### `compileFile(file, [data], [options])` → `Future<String>`
-
-Compiles and renders a Pug template file in one step. Automatically sets up Pug.js on first call.
-
-- `file` (File): The File object pointing to the Pug template
-- `data` (Map<String, dynamic>?, optional): Template variables
-- `options` (Map<String, dynamic>?, optional): Pug compilation options
-
-#### `dispose()` → `Future<void>`
-
-Disposes resources and shuts down the Pug server. Call this when you're done using Pug to clean up resources.
-
-## Common Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `filename` | String | Template filename (for error reporting) |
-| `pretty` | bool | Add pretty-printing whitespace |
-| `cache` | bool | Cache compiled templates |
-| `compileDebug` | bool | Include debugging information |
-| `doctype` | String | Doctype to use |
-
-## Error Handling
-
-The library provides detailed error handling with appropriate exception types:
-
-### File-related Errors
-
-For file-based operations (`renderFile`, `compileFile`), the library throws:
-
-- `FileSystemException` - When template files are not found or inaccessible
-- `PugServerException` - For Pug compilation/rendering errors
-
-```dart
-try {
-  final templateFile = File('templates/nonexistent.pug');
-  final html = await pug.renderFile(templateFile);
-} catch (e) {
-  if (e is FileSystemException) {
-    print('File error: ${e.message}');
-    print('Path: ${e.path}');
-  } else if (e is PugServerException) {
-    print('Pug error: ${e.message}');
-  }
-}
+```sh
+dart run pug_dart:pug-dart render path/to/template.pug
+dart run pug_dart:pug-dart compile-check path/to/template.pug
+dart run pug_dart:pug-dart golden:update
 ```
 
-### Template Errors
+## Quality Gates
 
-For template compilation/rendering errors:
-
-```dart
-try {
-  final html = await pug.render('invalid[ pug syntax');
-} catch (e) {
-  if (e is PugServerException) {
-    print('Pug error: ${e.message}');
-    // Will show detailed Pug syntax error with line numbers
-  }
-}
-```
-
-### Server Communication Errors
-
-For server-related issues:
-
-```dart
-try {
-  final html = await pug.render('h1 Hello World');
-} catch (e) {
-  if (e is PugServerException) {
-    print('Server communication error: ${e.message}');
-  }
-}
-```
-
-## Testing
-
-Tests can be run normally since this library uses `dart:io` instead of web-specific APIs:
-
-```bash
+```sh
+dart format --set-exit-if-changed .
+dart analyze --fatal-infos --fatal-warnings
 dart test
+dart pub publish --dry-run
 ```
-
-## Performance
-
-This library is designed for high performance:
-
-- **Persistent Server**: One Node.js process stays running, eliminating startup overhead
-- **Unix Domain Sockets**: Fast inter-process communication without network overhead
-- **Automatic Management**: Server starts/stops automatically as needed
-- **Connection Pooling**: Each request uses a new socket connection for thread safety
-
-Typical performance improvements over process-per-request:
-- **First call**: Similar (server startup overhead)
-- **Subsequent calls**: 10-50x faster (no process spawning)
-- **Memory usage**: Much lower (one persistent process vs many)
-
-## Use Cases
-
-This library is perfect for:
-- Server-side web applications (Shelf, Angel, etc.)
-- Static site generators
-- Email template rendering
-- Report generation  
-- Command-line tools that need HTML output
-- High-throughput template rendering
-
-## Platform Support
-
-Currently supported:
-- ✅ Linux (all distributions)
-- ✅ macOS
-- ❌ Windows (coming soon - will use named pipes)
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details. 

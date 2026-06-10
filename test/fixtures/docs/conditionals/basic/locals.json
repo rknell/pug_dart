@@ -1,0 +1,8 @@
+{
+  "user": {
+    "description": "foo bar baz",
+    "isAnonymous": false,
+    "name": "Ada"
+  },
+  "authorised": false
+}
